@@ -1,0 +1,72 @@
+<Window x:Class="GlassFolders.Views.ModernDialogWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="False" Background="Transparent"
+        ResizeMode="NoResize" SizeToContent="WidthAndHeight" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13"
+        KeyDown="Window_KeyDown">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="0" ResizeBorderThickness="0" GlassFrameThickness="0" CornerRadius="0"/>
+    </WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="Fg" Color="#1B1E24"/>
+        <SolidColorBrush x:Key="FgDim" Color="#5C636E"/>
+        <SolidColorBrush x:Key="CardBg" Color="#7AFFFFFF"/>
+        <SolidColorBrush x:Key="CardBorder" Color="#40FFFFFF"/>
+        <SolidColorBrush x:Key="CtrlBg" Color="#66FFFFFF"/>
+        <SolidColorBrush x:Key="Accent" Color="#4F7CF5"/>
+        <SolidColorBrush x:Key="AccentText" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="Danger" Color="#E5484D"/>
+
+        <Style x:Key="Pill" TargetType="Button">
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+            <Setter Property="Background" Value="{DynamicResource CtrlBg}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="9"
+                                BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Opacity" Value="0.88"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="b" Property="Opacity" Value="0.75"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border x:Name="Card" CornerRadius="16" Width="400" Padding="24"
+            Background="{DynamicResource CardBg}"
+            BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"
+            MouseLeftButtonDown="Card_Drag">
+        <StackPanel>
+            <TextBlock x:Name="TitleText" FontSize="17" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Fg}" Margin="0,0,0,10"/>
+            <TextBlock x:Name="MessageText" TextWrapping="Wrap" Foreground="{DynamicResource FgDim}"
+                       FontSize="13.5"/>
+            <TextBox x:Name="InputBox" Visibility="Collapsed" Margin="0,14,0,0" Padding="8,6"
+                     Foreground="{DynamicResource Fg}" Background="{DynamicResource CtrlBg}"
+                     BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+                <Button x:Name="CancelButton" Style="{StaticResource Pill}" Content="Cancel"
+                        Click="Cancel_Click"/>
+                <Button x:Name="OkButton" Style="{StaticResource Pill}" Content="OK" Margin="10,0,0,0"
+                        Foreground="{DynamicResource AccentText}" Background="{DynamicResource Accent}"
+                        Click="Ok_Click"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

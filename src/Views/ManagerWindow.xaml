@@ -1,0 +1,428 @@
+<Window x:Class="GlassFolders.Views.ManagerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Liquid Folders" Height="660" Width="1000"
+        MinWidth="760" MinHeight="500"
+        WindowStyle="None" AllowsTransparency="False" Background="Transparent"
+        WindowStartupLocation="CenterScreen"
+        FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13"
+        TextOptions.TextFormattingMode="Ideal" UseLayoutRounding="True">
+
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="46" ResizeBorderThickness="6"
+                      CornerRadius="0" GlassFrameThickness="0"/>
+    </WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <!-- Theme brushes (light defaults; overwritten in code for dark) -->
+        <SolidColorBrush x:Key="Fg"         Color="#1B1E24"/>
+        <SolidColorBrush x:Key="FgDim"      Color="#5C636E"/>
+        <SolidColorBrush x:Key="WinTint"    Color="#33FFFFFF"/>
+        <SolidColorBrush x:Key="CardBg"     Color="#6EFFFFFF"/>
+        <SolidColorBrush x:Key="CardBorder" Color="#3CFFFFFF"/>
+        <SolidColorBrush x:Key="TileBg"     Color="#4DFFFFFF"/>
+        <SolidColorBrush x:Key="Hover"      Color="#26FFFFFF"/>
+        <SolidColorBrush x:Key="Sel"        Color="#3A4F7CF5"/>
+        <SolidColorBrush x:Key="CtrlBg"     Color="#59FFFFFF"/>
+        <SolidColorBrush x:Key="Accent"     Color="#4F7CF5"/>
+        <SolidColorBrush x:Key="AccentText" Color="#FFFFFF"/>
+
+        <!-- Window caption buttons -->
+        <Style x:Key="CaptionButton" TargetType="Button">
+            <Setter Property="Width" Value="46"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{DynamicResource Hover}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Filled accent button -->
+        <Style x:Key="AccentButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource AccentText}"/>
+            <Setter Property="Background" Value="{DynamicResource Accent}"/>
+            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="9"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Opacity" Value="0.9"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="b" Property="Opacity" Value="0.78"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Subtle "ghost" button (toolbar actions) -->
+        <Style x:Key="GhostButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+            <Setter Property="Background" Value="{DynamicResource CtrlBg}"/>
+            <Setter Property="Padding" Value="12,7"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="9"
+                                BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{DynamicResource Hover}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="b" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Folder sidebar list -->
+        <Style x:Key="FolderListStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+        </Style>
+        <Style x:Key="FolderItem" TargetType="ListBoxItem">
+            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="b" CornerRadius="12" Padding="10,8" Background="Transparent">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{DynamicResource Hover}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{DynamicResource Sel}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- App tile / row container -->
+        <Style x:Key="AppItem" TargetType="ListBoxItem">
+            <Setter Property="Margin" Value="3"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="b" CornerRadius="16" Padding="6" Background="Transparent">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{DynamicResource Hover}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{DynamicResource Sel}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- App views: grid tile + list row -->
+        <!-- Borderless paging arrow for the glass folder (no default button box) -->
+        <Style x:Key="GlassArrow" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#70141414"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="Transparent">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="#DD101010"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- App tiles sit on frosted glass -> dark text + white halo, like the real folder -->
+        <DataTemplate x:Key="GridTile">
+            <StackPanel Width="108">
+                <Image Source="{Binding Icon}" Width="56" Height="56" HorizontalAlignment="Center"/>
+                <TextBlock Text="{Binding Name}" Foreground="#15181D" FontSize="12"
+                           TextAlignment="Center" TextWrapping="Wrap" MaxHeight="32"
+                           Margin="0,6,0,0" TextTrimming="CharacterEllipsis">
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="6" ShadowDepth="0" Opacity="0.9" Color="#FFFFFF"/>
+                    </TextBlock.Effect>
+                </TextBlock>
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate x:Key="ListRow">
+            <DockPanel MinWidth="360">
+                <Image Source="{Binding Icon}" Width="34" Height="34" Margin="4,0,14,0"/>
+                <TextBlock Text="{Binding Name}" Foreground="#15181D" VerticalAlignment="Center" FontSize="13.5">
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="6" ShadowDepth="0" Opacity="0.85" Color="#FFFFFF"/>
+                    </TextBlock.Effect>
+                </TextBlock>
+            </DockPanel>
+        </DataTemplate>
+
+        <ItemsPanelTemplate x:Key="GridPanel">
+            <UniformGrid Columns="3"/>
+        </ItemsPanelTemplate>
+        <ItemsPanelTemplate x:Key="ListPanel">
+            <StackPanel Orientation="Vertical"/>
+        </ItemsPanelTemplate>
+    </Window.Resources>
+
+    <!-- Root: subtle tint over the DWM acrylic backdrop -->
+    <Border Background="{DynamicResource WinTint}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="46"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Title bar -->
+            <Grid Grid.Row="0" Margin="14,0,8,0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="18" Height="18" CornerRadius="6" Margin="0,0,10,0">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                <GradientStop Color="#6FA0FF" Offset="0"/>
+                                <GradientStop Color="#8C6BFF" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
+                    <TextBlock Text="Liquid Folders" FontWeight="SemiBold" FontSize="13.5"
+                               Foreground="{DynamicResource Fg}" VerticalAlignment="Center"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button x:Name="SettingsButton" Style="{StaticResource CaptionButton}"
+                            Content="&#xE713;" Click="Settings_Click" ToolTip="Settings"/>
+                    <Button x:Name="MinButton" Style="{StaticResource CaptionButton}"
+                            Content="&#xE921;" Click="Min_Click"/>
+                    <Button x:Name="CloseButton" Style="{StaticResource CaptionButton}"
+                            Content="&#xE8BB;" Click="Close_Click"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Body -->
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="264"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Sidebar -->
+                <DockPanel Grid.Column="0" Margin="14,4,7,14">
+                    <TextBlock DockPanel.Dock="Top" Text="FOLDERS" FontSize="11" FontWeight="SemiBold"
+                               Foreground="{DynamicResource FgDim}" Margin="6,0,0,8"/>
+                    <Button DockPanel.Dock="Bottom" x:Name="NewFolderButton" Style="{StaticResource AccentButton}"
+                            Margin="0,10,0,0" Content="+  New folder" Click="New_Click"/>
+                    <Border CornerRadius="14" Background="{DynamicResource CardBg}"
+                            BorderBrush="{DynamicResource CardBorder}" BorderThickness="1" Padding="6">
+                        <ListBox x:Name="FolderList" Style="{StaticResource FolderListStyle}"
+                                 ItemContainerStyle="{StaticResource FolderItem}"
+                                 SelectionChanged="FolderList_SelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <DockPanel>
+                                        <Image Source="{Binding Icon}" Width="30" Height="30" Margin="0,0,10,0"/>
+                                        <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Fg}"
+                                                   VerticalAlignment="Center" FontSize="13.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </DockPanel>
+
+                <!-- Content -->
+                <DockPanel Grid.Column="1" x:Name="ContentPane" Margin="7,4,16,14" IsEnabled="False">
+                    <!-- Header -->
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock x:Name="FolderTitle" Text="Select a folder" FontSize="22"
+                                       FontWeight="SemiBold" Foreground="{DynamicResource Fg}"/>
+                            <TextBlock x:Name="FolderCount" Foreground="{DynamicResource FgDim}"
+                                       FontSize="14" VerticalAlignment="Bottom" Margin="10,0,0,3"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Style="{StaticResource GhostButton}" Content="Rename" Click="Rename_Click"/>
+                            <Button Style="{StaticResource GhostButton}" Content="Delete" Margin="8,0,0,0" Click="Delete_Click"/>
+                            <Button x:Name="ViewToggle" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                    Content="List view" Click="ViewToggle_Click"/>
+                            <Button Style="{StaticResource AccentButton}" Margin="8,0,0,0"
+                                    Content="+  Add apps" Click="Add_Click"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Search -->
+                    <Border DockPanel.Dock="Top" CornerRadius="10" Background="{DynamicResource CtrlBg}"
+                            BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"
+                            Padding="12,0" Margin="0,0,0,12" Height="38">
+                        <Grid>
+                            <TextBlock x:Name="SearchHint" Text="Search apps in this folder…"
+                                       Foreground="{DynamicResource FgDim}" VerticalAlignment="Center"
+                                       IsHitTestVisible="False"/>
+                            <TextBox x:Name="SearchBox" Background="Transparent" BorderThickness="0"
+                                     Foreground="{DynamicResource Fg}" VerticalContentAlignment="Center"
+                                     TextChanged="Search_TextChanged"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Per-folder controls: frostiness (+ reset), desktop toggle, open position -->
+                    <Border DockPanel.Dock="Bottom" CornerRadius="14" Background="{DynamicResource CardBg}"
+                            BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"
+                            Padding="16,12" Margin="0,12,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,22,0">
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Frostiness" VerticalAlignment="Center"
+                                               FontWeight="SemiBold" Foreground="{DynamicResource Fg}" Margin="0,0,14,0"/>
+                                    <Slider x:Name="FrostSlider" Grid.Column="1" Minimum="0" Maximum="100"
+                                            IsSnapToTickEnabled="True" TickFrequency="1"
+                                            VerticalAlignment="Center" ValueChanged="Frost_ValueChanged"/>
+                                    <StackPanel Grid.Column="2" Width="58" Margin="10,0,0,0"
+                                                VerticalAlignment="Center">
+                                        <TextBlock x:Name="FrostValueMain" TextAlignment="Right"
+                                                   Foreground="{DynamicResource FgDim}"/>
+                                        <TextBlock x:Name="FrostValueSub" TextAlignment="Right" FontSize="10"
+                                                   Foreground="{DynamicResource FgDim}" Opacity="0.75"
+                                                   Visibility="Collapsed"/>
+                                    </StackPanel>
+                                </Grid>
+                                <CheckBox x:Name="OnDesktopCheck" Content="Show shortcut on desktop"
+                                          VerticalAlignment="Center" Foreground="{DynamicResource Fg}"
+                                          Click="OnDesktop_Click"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock Text="Opens at" Foreground="{DynamicResource FgDim}" FontSize="11.5"
+                                           HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                                <UniformGrid x:Name="PositionGrid" Rows="3" Columns="3" Width="64" Height="64"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- App area = the folder itself: frosted glass, 3x3 pages, drag to rearrange -->
+                    <Border x:Name="FolderGlass" CornerRadius="20"
+                            BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"
+                            AllowDrop="True" DragOver="Apps_DragOver" Drop="Apps_Drop"
+                            SizeChanged="FolderGlass_SizeChanged">
+                        <Grid>
+                            <Rectangle>
+                                <Rectangle.Fill>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#2E5C97" Offset="0"/>
+                                        <GradientStop Color="#6C3FA0" Offset="0.55"/>
+                                        <GradientStop Color="#B05070" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Rectangle.Fill>
+                            </Rectangle>
+                            <Image x:Name="MainBlur" Stretch="UniformToFill" Margin="-90">
+                                <Image.Effect>
+                                    <BlurEffect x:Name="MainBlurEffect" Radius="14" KernelType="Gaussian"/>
+                                </Image.Effect>
+                            </Image>
+                            <!-- Uniform white frost veil (matches the real folder panel) -->
+                            <Border x:Name="MainTint" Background="#FFFFFFFF"/>
+
+                            <Grid Margin="4,12,4,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="44"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="44"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Button x:Name="MainPrev" Grid.Column="0" Style="{StaticResource GlassArrow}"
+                                        FontSize="30" Content="&#x2039;" Click="MainPrev_Click"/>
+                                <Button x:Name="MainNext" Grid.Column="2" Style="{StaticResource GlassArrow}"
+                                        FontSize="30" Content="&#x203A;" Click="MainNext_Click"/>
+
+                                <DockPanel Grid.Column="1">
+                                    <StackPanel x:Name="MainDots" DockPanel.Dock="Bottom" Orientation="Horizontal"
+                                                HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                                    <ListBox x:Name="AppList" Background="Transparent" BorderThickness="0"
+                                             VerticalAlignment="Center"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                             ItemContainerStyle="{StaticResource AppItem}"
+                                             ItemTemplate="{StaticResource GridTile}"
+                                             ItemsPanel="{StaticResource GridPanel}"
+                                             PreviewMouseLeftButtonDown="AppList_PreviewMouseLeftButtonDown"
+                                             PreviewMouseMove="AppList_PreviewMouseMove"
+                                             PreviewMouseRightButtonDown="AppList_PreviewMouseRightButtonDown"
+                                             Drop="AppList_Drop" AllowDrop="True"
+                                             KeyDown="AppList_KeyDown"
+                                             MouseDoubleClick="AppList_MouseDoubleClick">
+                                        <ListBox.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Open" Click="AppOpen_Click"/>
+                                                <MenuItem Header="Remove from folder" Click="AppRemove_Click"/>
+                                            </ContextMenu>
+                                        </ListBox.ContextMenu>
+                                    </ListBox>
+                                </DockPanel>
+                            </Grid>
+
+                            <TextBlock x:Name="EmptyHint" Visibility="Collapsed"
+                                       Text="Drop apps or shortcuts here, or click “Add apps”."
+                                       Foreground="#50151515" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                </DockPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
