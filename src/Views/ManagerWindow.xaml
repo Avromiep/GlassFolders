@@ -373,7 +373,8 @@
                             </Rectangle>
                             <Image x:Name="MainBlur" Stretch="UniformToFill" Margin="-90">
                                 <Image.Effect>
-                                    <BlurEffect x:Name="MainBlurEffect" Radius="14" KernelType="Gaussian"/>
+                                    <BlurEffect x:Name="MainBlurEffect" Radius="14"
+                                                KernelType="Gaussian" RenderingBias="Performance"/>
                                 </Image.Effect>
                             </Image>
                             <!-- Uniform white frost veil (matches the real folder panel) -->

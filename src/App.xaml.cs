@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Liquid Folders";
-    public const string AppVersion = "0.1.1";
+    public const string AppVersion = "0.1.2";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -76,7 +76,8 @@ public partial class App : Application
         // Single-click on one of our desktop folder icons opens it (rest of desktop unchanged).
         _clickWatcher = new DesktopClickWatcher(
             isOurFolder: name => _store.FindByName(name) != null,
-            open: name => Dispatcher.Invoke(() => Dispatch(name, new List<string>())));
+            // BeginInvoke (not Invoke) so a busy UI thread can never block the hook's worker.
+            open: name => Dispatcher.BeginInvoke(() => Dispatch(name, new List<string>())));
         _clickWatcher.Install();
 
         Dispatch(openName, filesToAdd);

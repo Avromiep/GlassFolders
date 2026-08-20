@@ -501,7 +501,9 @@ public partial class ManagerWindow : Window
     {
         if (MainBlurEffect == null || MainTint == null) return;
         double f = Math.Clamp(frostiness, 0, 100) / 100.0;
-        MainBlurEffect.Radius = 10 + f * 40;                     // strong, uniform blur
+        // Keep the live WPF blur modest (cost scales with radius); the opaque tint does most
+        // of the frosting, so this stays light even on weak/software-rendered GPUs.
+        MainBlurEffect.Radius = 5 + f * 15;                      // 5 .. 20 (was up to 50)
         MainTint.Opacity = Math.Clamp(0.18 + f * 1.10, 0, 1);   // matches the panel veil
     }
 

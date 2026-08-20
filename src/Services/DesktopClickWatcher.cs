@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows.Automation;
 using static GlassFolders.NativeMethods;
 
@@ -11,7 +12,10 @@ namespace GlassFolders.Services;
 /// double-click behavior. Windows has no per-icon single-click setting, so we watch clicks
 /// and use UI Automation to identify what was clicked.
 ///
-/// A drag (moved far / held long) is ignored so icons can still be repositioned.
+/// The hook runs on its OWN dedicated thread with a message loop. A low-level hook is
+/// serviced by its installing thread's message pump — if it lived on the UI thread, any
+/// heavy UI work (e.g. rendering the glass manager) would stall it and lag the *entire
+/// system's* mouse. A drag (moved far / held long) is ignored so icons can still be moved.
 /// </summary>
 public sealed class DesktopClickWatcher : IDisposable
 {
@@ -19,6 +23,9 @@ public sealed class DesktopClickWatcher : IDisposable
     private readonly Action<string> _open;
     private readonly LowLevelMouseProc _proc; // kept alive to avoid GC of the callback
     private IntPtr _hook;
+
+    private Thread? _thread;
+    private uint _threadId;
 
     private POINT _downPt;
     private uint _downTime;
@@ -33,13 +40,33 @@ public sealed class DesktopClickWatcher : IDisposable
 
     public void Install()
     {
+        _thread = new Thread(HookThread)
+        {
+            IsBackground = true,
+            Name = "GlassFolders.MouseHook",
+        };
+        _thread.Start();
+    }
+
+    private void HookThread()
+    {
+        _threadId = GetCurrentThreadId();
         try
         {
             using var proc = Process.GetCurrentProcess();
             using var mod = proc.MainModule!;
             _hook = SetWindowsHookEx(WH_MOUSE_LL, _proc, GetModuleHandle(mod.ModuleName), 0);
         }
-        catch { /* single-click is a nice-to-have; double-click always works */ }
+        catch { return; /* single-click is a nice-to-have; double-click always works */ }
+
+        // Pump messages so the hook is always serviced on THIS thread, never the UI thread.
+        while (GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
+        {
+            TranslateMessage(ref msg);
+            DispatchMessage(ref msg);
+        }
+
+        if (_hook != IntPtr.Zero) { UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; }
     }
 
     private IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam)
@@ -99,10 +126,8 @@ public sealed class DesktopClickWatcher : IDisposable
 
     public void Dispose()
     {
-        if (_hook != IntPtr.Zero)
-        {
-            UnhookWindowsHookEx(_hook);
-            _hook = IntPtr.Zero;
-        }
+        // Ask the hook thread's message loop to exit; it unhooks on the way out.
+        if (_threadId != 0) PostThreadMessage(_threadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+        _thread?.Join(1000);
     }
 }
