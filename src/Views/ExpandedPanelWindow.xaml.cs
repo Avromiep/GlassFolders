@@ -15,6 +15,7 @@ public partial class ExpandedPanelWindow : Window
     private readonly FolderModel _folder;
     private int _pageIndex;
     private int _blurFactor = 11;
+    private bool _closeArmed;
 
     private static readonly Brush DotActive = new SolidColorBrush(Color.FromArgb(0xDD, 0x20, 0x24, 0x28));
     private static readonly Brush DotInactive = new SolidColorBrush(Color.FromArgb(0x55, 0x20, 0x24, 0x28));
@@ -59,14 +60,36 @@ public partial class ExpandedPanelWindow : Window
 
         PlayOpenAnimation();
 
-        // Force activation so a later click on the desktop reliably fires Deactivated and
-        // closes the panel. Launched-from-shortcut windows often open without focus.
+        // Reliably bring to the front. The tray process isn't the foreground process, so a
+        // plain SetForegroundWindow usually loses to the foreground lock; AttachThreadInput
+        // gets past it. Without this the window can immediately deactivate and self-close.
         Activate();
         Focus();
+        ForceForeground();
+
+        // Grace period: ignore any Deactivated that fires right as we open (the race that made
+        // folders "open and vanish"). After this, clicking the desktop closes normally.
+        var arm = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(450),
+        };
+        arm.Tick += (_, _) => { arm.Stop(); _closeArmed = true; };
+        arm.Start();
+    }
+
+    private void ForceForeground()
+    {
         try
         {
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            IntPtr fg = NativeMethods.GetForegroundWindow();
+            uint fgThread = NativeMethods.GetWindowThreadProcessId(fg, out _);
+            uint myThread = NativeMethods.GetCurrentThreadId();
+            bool attached = fgThread != 0 && fgThread != myThread
+                && NativeMethods.AttachThreadInput(myThread, fgThread, true);
+            NativeMethods.BringWindowToTop(hwnd);
             NativeMethods.SetForegroundWindow(hwnd);
+            if (attached) NativeMethods.AttachThreadInput(myThread, fgThread, false);
         }
         catch { }
     }
@@ -336,6 +359,7 @@ public partial class ExpandedPanelWindow : Window
 
     private void Window_Deactivated(object? sender, EventArgs e)
     {
-        if (!SuppressAutoClose) Close();
+        // Don't self-close during the opening grace period (avoids the "opens and vanishes" race).
+        if (!SuppressAutoClose && _closeArmed) Close();
     }
 }

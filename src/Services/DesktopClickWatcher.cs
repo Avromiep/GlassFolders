@@ -73,17 +73,22 @@ public sealed class DesktopClickWatcher : IDisposable
         {
             try
             {
-                var el = AutomationElement.FromPoint(new System.Windows.Point(pt.x, pt.y));
+                var p = new System.Windows.Point(pt.x, pt.y);
+                var el = AutomationElement.FromPoint(p);
+                // On a busy system FromPoint can momentarily return nothing; one quick retry.
+                if (el is null) { System.Threading.Thread.Sleep(30); el = AutomationElement.FromPoint(p); }
                 if (el is null) return;
                 if (el.Current.ControlType != ControlType.ListItem) return; // desktop icons are list items
 
                 string name = el.Current.Name;
                 if (string.IsNullOrEmpty(name) || !_isOurFolder(name)) return;
 
+                // De-dupe only the same physical double-click; keep it short so a deliberate
+                // re-click right after closing the folder still opens it.
                 long now = Environment.TickCount64;
                 lock (_lastOpen)
                 {
-                    if (_lastOpen.TryGetValue(name, out var last) && now - last < 900) return;
+                    if (_lastOpen.TryGetValue(name, out var last) && now - last < 300) return;
                     _lastOpen[name] = now;
                 }
                 _open(name);

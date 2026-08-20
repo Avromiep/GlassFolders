@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Liquid Folders";
-    public const string AppVersion = "0.1.0";
+    public const string AppVersion = "0.1.1";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -424,7 +424,13 @@ public partial class App : Application
     {
         if (_openPanels.TryGetValue(folder.Name, out var existing))
         {
-            if (!forceReopen) { try { existing.Activate(); } catch { } return; }
+            // Only reuse a genuinely open/visible panel; otherwise it's a stale reference
+            // (a panel that closed or never finished opening) — drop it and open fresh.
+            if (!forceReopen && existing.IsLoaded && existing.IsVisible)
+            {
+                try { existing.Activate(); existing.Focus(); } catch { }
+                return;
+            }
             try { existing.Close(); } catch { }
             _openPanels.Remove(folder.Name);
         }
