@@ -649,6 +649,11 @@ public partial class ExpandedPanelWindow : Window
 
     private bool _closing;
 
+    /// <summary>True once the panel has begun closing — App uses this so a click that arrives
+    /// while the panel is tearing down reopens a fresh one instead of "reviving" the dying one
+    /// (the "close it and it won't reopen" bug).</summary>
+    public bool IsClosing => _closing;
+
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
         _closing = true;

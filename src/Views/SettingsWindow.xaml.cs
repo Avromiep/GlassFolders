@@ -117,4 +117,32 @@ public partial class SettingsWindow : Window
         }
         catch (Exception ex) { BackupStatus.Text = "Import failed: " + ex.Message; }
     }
+
+    // ---- Diagnostics ----
+
+    private void SaveLog_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            var dest = System.IO.Path.Combine(desktop,
+                $"LiquidFolders-log-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+            if (Diag.SaveCopyTo(dest))
+                DiagStatus.Text = $"Saved to your Desktop: {System.IO.Path.GetFileName(dest)}";
+            else
+                DiagStatus.Text = "No log yet — open a folder or two first, then try again.";
+        }
+        catch (Exception ex) { DiagStatus.Text = "Couldn't save the log: " + ex.Message; }
+    }
+
+    private void OpenLog_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dir = System.IO.Path.GetDirectoryName(Diag.Path)!;
+            System.IO.Directory.CreateDirectory(dir);
+            Process.Start(new ProcessStartInfo(dir) { UseShellExecute = true });
+        }
+        catch (Exception ex) { DiagStatus.Text = "Couldn't open the folder: " + ex.Message; }
+    }
 }

@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Liquid Folders";
-    public const string AppVersion = "0.1.5";
+    public const string AppVersion = "0.1.6";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -32,6 +32,8 @@ public partial class App : Application
         };
         AppDomain.CurrentDomain.UnhandledException += (_, ex) =>
             LogCrash("AppDomain", ex.ExceptionObject as Exception);
+
+        Diag.LogSession(AppVersion);
 
         if (e.Args.Length >= 1 && e.Args[0].Equals("--selftest", StringComparison.OrdinalIgnoreCase))
         {
@@ -480,10 +482,10 @@ public partial class App : Application
     {
         if (_openPanels.TryGetValue(folder.Name, out var existing))
         {
-            Diag.Log($"openPanel '{folder.Name}' existing loaded={existing.IsLoaded} visible={existing.IsVisible} forceReopen={forceReopen}");
+            Diag.Log($"openPanel '{folder.Name}' existing loaded={existing.IsLoaded} visible={existing.IsVisible} closing={existing.IsClosing} forceReopen={forceReopen}");
             // Only reuse a genuinely open/visible panel; otherwise it's a stale reference
-            // (a panel that closed or never finished opening) — drop it and open fresh.
-            if (!forceReopen && existing.IsLoaded && existing.IsVisible)
+            // (a panel that closed, is mid-close, or never finished opening) — drop it and open fresh.
+            if (!forceReopen && existing.IsLoaded && existing.IsVisible && !existing.IsClosing)
             {
                 try { existing.Activate(); existing.Focus(); } catch { }
                 return;
