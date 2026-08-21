@@ -17,6 +17,10 @@ public partial class ExpandedPanelWindow : Window
     private int _blurFactor = 11;
     private bool _closeArmed;
 
+    /// <summary>Screen point of the clicked folder icon (device px). The panel opens on this
+    /// point's display, so it never lands on a different monitor than the folder.</summary>
+    public System.Drawing.Point? AnchorPoint { get; set; }
+
     private static readonly Brush DotActive = new SolidColorBrush(Color.FromArgb(0xDD, 0x20, 0x24, 0x28));
     private static readonly Brush DotInactive = new SolidColorBrush(Color.FromArgb(0x55, 0x20, 0x24, 0x28));
 
@@ -31,7 +35,62 @@ public partial class ExpandedPanelWindow : Window
         TitleText.Text = folder.Name;
         ApplyFrostiness(folder.Frostiness);
 
+        ItemsGrid.PreviewMouseLeftButtonDown += ItemsGrid_PreviewMouseLeftButtonDown;
+        ItemsGrid.PreviewMouseMove += ItemsGrid_PreviewMouseMove;
+
         Loaded += OnLoaded;
+    }
+
+    // ---- Drag an app OUT of the folder to remove it (drop it outside the glass) ----
+
+    private ShortcutItem? _dragOutItem;
+    private Point _dragOutStart;
+    private bool _dragOutActive;
+
+    private void ItemsGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _dragOutItem = FindItem(e.OriginalSource as DependencyObject);
+        _dragOutStart = e.GetPosition(this);
+        _dragOutActive = false;
+    }
+
+    private void ItemsGrid_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_dragOutActive || _dragOutItem == null || e.LeftButton != MouseButtonState.Pressed) return;
+        var p = e.GetPosition(this);
+        if (Math.Abs(p.X - _dragOutStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(p.Y - _dragOutStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+        _dragOutActive = true;
+        var item = _dragOutItem;
+        try { DragDrop.DoDragDrop(ItemsGrid, item, DragDropEffects.Move); } catch { }
+
+        // Dropped outside the glass panel -> remove it from the folder (iOS "drag out").
+        try
+        {
+            NativeMethods.GetCursorPos(out var c);
+            var tl = Frost.PointToScreen(new Point(0, 0));
+            var src = PresentationSource.FromVisual(this);
+            double sx = src?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+            double sy = src?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
+            double fw = Frost.ActualWidth * sx, fh = Frost.ActualHeight * sy;
+            bool inside = c.x >= tl.X && c.x <= tl.X + fw && c.y >= tl.Y && c.y <= tl.Y + fh;
+            if (!inside) RemoveItem(item);
+        }
+        catch { }
+
+        _dragOutActive = false;
+        _dragOutItem = null;
+    }
+
+    private static ShortcutItem? FindItem(DependencyObject? d)
+    {
+        while (d != null)
+        {
+            if (d is Button b && b.Tag is ShortcutItem si) return si;
+            d = VisualTreeHelper.GetParent(d);
+        }
+        return null;
     }
 
     /// <summary>Maps 0..100 frostiness to tint opacity and blur strength.</summary>
@@ -100,12 +159,24 @@ public partial class ExpandedPanelWindow : Window
             int h = (int)Math.Round(Frost.ActualHeight * sy);
             if (w <= 0 || h <= 0) return;
 
-            using var shot = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-            using (var g = System.Drawing.Graphics.FromImage(shot))
-                g.CopyFromScreen((int)topLeft.X, (int)topLeft.Y, 0, 0, new System.Drawing.Size(w, h));
+            // Capture a padded region AROUND the panel so the blur near the panel's edges has
+            // real neighbours to mix with — otherwise the edges look less frosted than the
+            // centre (a blur has fewer samples at an image edge). Then crop back to the panel.
+            int pad = (int)Math.Round(70 * sx);
+            int cx = (int)topLeft.X - pad, cy = (int)topLeft.Y - pad;
+            int cw = w + pad * 2, ch = h + pad * 2;
 
-            using var blurred = DownUpBlur(shot, _blurFactor);
-            Frost.Background = new ImageBrush(ImageHelper.ToImageSource(blurred)) { Stretch = Stretch.Fill };
+            using var shot = new System.Drawing.Bitmap(cw, ch, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var g = System.Drawing.Graphics.FromImage(shot))
+                g.CopyFromScreen(cx, cy, 0, 0, new System.Drawing.Size(cw, ch));
+
+            using var blurredBig = DownUpBlur(shot, _blurFactor);
+            using var cropped = new System.Drawing.Bitmap(w, h);
+            using (var g2 = System.Drawing.Graphics.FromImage(cropped))
+                g2.DrawImage(blurredBig, new System.Drawing.Rectangle(0, 0, w, h),
+                    new System.Drawing.Rectangle(pad, pad, w, h), System.Drawing.GraphicsUnit.Pixel);
+
+            Frost.Background = new ImageBrush(ImageHelper.ToImageSource(cropped)) { Stretch = Stretch.Fill };
         }
         catch { /* leave the transparent background; tint + rim still read as glass */ }
     }
@@ -161,8 +232,10 @@ public partial class ExpandedPanelWindow : Window
 
     private void PositionNearCursor()
     {
-        var mouse = System.Windows.Forms.Cursor.Position;
-        var screen = System.Windows.Forms.Screen.FromPoint(mouse);
+        // Anchor to the clicked folder icon's screen (falls back to the cursor for the
+        // double-click path). This guarantees the panel opens on the folder's own display.
+        var probe = AnchorPoint ?? System.Windows.Forms.Cursor.Position;
+        var screen = System.Windows.Forms.Screen.FromPoint(probe);
         var wa = screen.WorkingArea;
 
         // WPF units vs device pixels: approximate with the window's DPI scale.
@@ -212,10 +285,11 @@ public partial class ExpandedPanelWindow : Window
         foreach (var item in _folder.Page(_pageIndex))
             ItemsGrid.Items.Add(BuildTile(item));
 
-        // Keep the 3x3 shape stable by padding empty cells on the last page.
+        // Pad empty cells at a real tile's size so the panel keeps a full 3x3 footprint even
+        // when the folder (or last page) isn't full — an empty folder still opens full size.
         int shown = _folder.Page(_pageIndex).Count();
         for (int i = shown; i < FolderModel.PageSize; i++)
-            ItemsGrid.Items.Add(new Border { Width = 0, Height = 0 });
+            ItemsGrid.Items.Add(new Border { Width = 120, Height = 104 });
 
         bool multi = _folder.PageCount > 1;
         PrevButton.IsEnabled = multi && _pageIndex > 0;
@@ -266,6 +340,7 @@ public partial class ExpandedPanelWindow : Window
             Style = (Style)Resources["AppTile"],
             Content = stack,
             ToolTip = item.DisplayName,
+            Tag = item, // used by drag-out to identify which app is being dragged
         };
         btn.Click += (_, _) => Launch(item);
 

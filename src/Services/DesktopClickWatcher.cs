@@ -17,14 +17,14 @@ namespace GlassFolders.Services;
 public sealed class DesktopClickWatcher : IDisposable
 {
     private readonly Func<string, bool> _isOurFolder;
-    private readonly Action<string> _open;
+    private readonly Action<string, int, int> _open;
     private readonly Action<int, int>? _onClick;
 
     private Thread? _thread;
     private volatile bool _stop;
     private readonly Dictionary<string, long> _lastOpen = new(StringComparer.OrdinalIgnoreCase);
 
-    public DesktopClickWatcher(Func<string, bool> isOurFolder, Action<string> open,
+    public DesktopClickWatcher(Func<string, bool> isOurFolder, Action<string, int, int> open,
         Action<int, int>? onClick = null)
     {
         _isOurFolder = isOurFolder;
@@ -142,8 +142,8 @@ public sealed class DesktopClickWatcher : IDisposable
                     { Diag.Log($"  dedup-skip {matched}"); return; }
                     _lastOpen[matched] = now;
                 }
-                Diag.Log($"  -> open {matched}");
-                _open(matched);
+                Diag.Log($"  -> open {matched} at ({pt.x},{pt.y})");
+                _open(matched, pt.x, pt.y); // anchor the panel to the clicked icon's screen
             }
             catch { }
         });

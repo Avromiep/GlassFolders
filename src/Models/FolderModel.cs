@@ -16,7 +16,7 @@ public sealed class ShortcutItem
 public sealed class FolderModel
 {
     public const int PageSize = 9;
-    public const int DefaultFrostiness = 55;
+    public const int DefaultFrostiness = 45;
 
     public required string Name { get; set; }
     public required string DirectoryPath { get; init; }

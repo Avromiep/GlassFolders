@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Liquid Folders";
-    public const string AppVersion = "0.1.3";
+    public const string AppVersion = "0.1.4";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -87,7 +87,8 @@ public partial class App : Application
         _clickWatcher = new DesktopClickWatcher(
             isOurFolder: name => _store.FindByName(name) != null,
             // BeginInvoke (not Invoke) so a busy UI thread can never block the watcher's worker.
-            open: name => Dispatcher.BeginInvoke(() => Dispatch(name, new List<string>())),
+            // Pass the click point so the panel opens on the folder icon's display.
+            open: (name, x, y) => Dispatcher.BeginInvoke(() => Dispatch(name, new List<string>(), new System.Drawing.Point(x, y))),
             // Close an open panel when a click lands outside it (doesn't rely on window focus).
             onClick: (x, y) => Dispatcher.BeginInvoke(() => CloseIfOutside(x, y)));
         _clickWatcher.Install();
@@ -414,7 +415,7 @@ public partial class App : Application
         });
     }
 
-    private void Dispatch(string? openName, List<string> filesToAdd)
+    private void Dispatch(string? openName, List<string> filesToAdd, System.Drawing.Point? anchor = null)
     {
         if (openName == null) { ShowManager(); return; }
 
@@ -423,12 +424,15 @@ public partial class App : Application
 
         if (filesToAdd.Count > 0)
         {
+            // Dropping apps onto the closed folder icon: add them and refresh the icon, but
+            // DON'T open the panel (the folder shouldn't "launch" just because you dropped on it).
             foreach (var f in filesToAdd)
                 try { _store.AddShortcut(folder, f); } catch { }
-            _store.RegenerateAndPublish(folder);   // closed icon reflects the new first page
+            _store.RegenerateAndPublish(folder);
+            return;
         }
 
-        OpenPanel(folder, forceReopen: filesToAdd.Count > 0);
+        OpenPanel(folder, forceReopen: false, anchor);
     }
 
     private static void LogCrash(string source, Exception? ex)
@@ -464,7 +468,7 @@ public partial class App : Application
 
     /// <summary>Opens the folder's panel, or focuses it if already open (prevents duplicates
     /// from a single-click + double-click both firing).</summary>
-    private void OpenPanel(FolderModel folder, bool forceReopen)
+    private void OpenPanel(FolderModel folder, bool forceReopen, System.Drawing.Point? anchor = null)
     {
         if (_openPanels.TryGetValue(folder.Name, out var existing))
         {
@@ -481,7 +485,7 @@ public partial class App : Application
         }
 
         Diag.Log($"openPanel create '{folder.Name}' (open panels was {_openPanels.Count})");
-        var win = new ExpandedPanelWindow(_store, folder);
+        var win = new ExpandedPanelWindow(_store, folder) { AnchorPoint = anchor };
         _openPanels[folder.Name] = win;
         win.Closed += (_, _) =>
         {
