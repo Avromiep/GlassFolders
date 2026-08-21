@@ -60,38 +60,28 @@ public partial class ExpandedPanelWindow : Window
 
         PlayOpenAnimation();
 
-        // Reliably bring to the front. The tray process isn't the foreground process, so a
-        // plain SetForegroundWindow usually loses to the foreground lock; AttachThreadInput
-        // gets past it. Without this the window can immediately deactivate and self-close.
+        // Best-effort bring-to-front (no AttachThreadInput — that couples our input queue with
+        // Explorer's and leaves the desktop's focus/redraw glitched, needing an icon "flash" to
+        // recover). The panel is Topmost so it's visible regardless; closing is handled by the
+        // click-watcher detecting a click outside it, so we don't depend on true foreground.
         Activate();
         Focus();
-        ForceForeground();
+        try { NativeMethods.BringWindowToTop(new System.Windows.Interop.WindowInteropHelper(this).Handle); }
+        catch { }
+        try { NativeMethods.SetForegroundWindow(new System.Windows.Interop.WindowInteropHelper(this).Handle); }
+        catch { }
 
         // Grace period: ignore any Deactivated that fires right as we open (the race that made
-        // folders "open and vanish"). After this, clicking the desktop closes normally.
+        // folders "open and vanish"). After this, focus-loss also closes it, as a complement to
+        // the click-outside close.
         var arm = new System.Windows.Threading.DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(450),
         };
         arm.Tick += (_, _) => { arm.Stop(); _closeArmed = true; };
         arm.Start();
-    }
 
-    private void ForceForeground()
-    {
-        try
-        {
-            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            IntPtr fg = NativeMethods.GetForegroundWindow();
-            uint fgThread = NativeMethods.GetWindowThreadProcessId(fg, out _);
-            uint myThread = NativeMethods.GetCurrentThreadId();
-            bool attached = fgThread != 0 && fgThread != myThread
-                && NativeMethods.AttachThreadInput(myThread, fgThread, true);
-            NativeMethods.BringWindowToTop(hwnd);
-            NativeMethods.SetForegroundWindow(hwnd);
-            if (attached) NativeMethods.AttachThreadInput(myThread, fgThread, false);
-        }
-        catch { }
+        Services.Diag.Log($"panel '{_folder.Name}' loaded pos=({Left:0},{Top:0}) size={ActualWidth:0}x{ActualHeight:0} IsActive={IsActive} Topmost={Topmost}");
     }
 
     /// <summary>
@@ -305,7 +295,7 @@ public partial class ExpandedPanelWindow : Window
     {
         switch (e.Key)
         {
-            case Key.Escape: Close(); break;
+            case Key.Escape: SafeClose(); break;
             case Key.Left: ChangePage(-1); break;
             case Key.Right: ChangePage(+1); break;
         }
@@ -317,8 +307,9 @@ public partial class ExpandedPanelWindow : Window
     {
         try
         {
+            Services.Diag.Log($"panel launch '{item.DisplayName}' -> {item.LnkPath}");
             Process.Start(new ProcessStartInfo(item.LnkPath) { UseShellExecute = true });
-            Close();
+            SafeClose();
         }
         catch (Exception ex)
         {
@@ -359,7 +350,26 @@ public partial class ExpandedPanelWindow : Window
 
     private void Window_Deactivated(object? sender, EventArgs e)
     {
+        Services.Diag.Log($"panel '{_folder.Name}' Deactivated armed={_closeArmed} suppress={SuppressAutoClose} closing={_closing}");
         // Don't self-close during the opening grace period (avoids the "opens and vanishes" race).
-        if (!SuppressAutoClose && _closeArmed) Close();
+        if (!SuppressAutoClose && _closeArmed) SafeClose();
+    }
+
+    private bool _closing;
+
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        _closing = true;
+        base.OnClosing(e);
+    }
+
+    /// <summary>Closes once. Calling Close() again while a window is already closing throws
+    /// (which previously crashed the whole app when launching an app deactivated the panel
+    /// mid-close).</summary>
+    private void SafeClose()
+    {
+        if (_closing) return;
+        _closing = true;
+        try { Close(); } catch { }
     }
 }

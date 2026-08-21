@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Automation;
 using static GlassFolders.NativeMethods;
@@ -7,118 +5,145 @@ using static GlassFolders.NativeMethods;
 namespace GlassFolders.Services;
 
 /// <summary>
-/// Global low-level mouse hook that turns a *single* left-click on one of our folder's
-/// desktop icons into an "open" — while leaving the rest of the desktop on its normal
-/// double-click behavior. Windows has no per-icon single-click setting, so we watch clicks
-/// and use UI Automation to identify what was clicked.
+/// Turns a *single* left-click on one of our folder's desktop icons into an "open", while
+/// leaving the rest of the desktop on its normal double-click behavior.
 ///
-/// The hook runs on its OWN dedicated thread with a message loop. A low-level hook is
-/// serviced by its installing thread's message pump — if it lived on the UI thread, any
-/// heavy UI work (e.g. rendering the glass manager) would stall it and lag the *entire
-/// system's* mouse. A drag (moved far / held long) is ignored so icons can still be moved.
+/// It POLLS the mouse-button state on a background thread rather than installing a global
+/// mouse hook. A low-level hook sits in the path of every mouse event, so under load (e.g.
+/// while a launched app is starting) it starves and lags the entire system's cursor. Polling
+/// never touches the input stream, so it can't add any latency. A drag (moved far / held
+/// long) is ignored so icons can still be repositioned.
 /// </summary>
 public sealed class DesktopClickWatcher : IDisposable
 {
     private readonly Func<string, bool> _isOurFolder;
     private readonly Action<string> _open;
-    private readonly LowLevelMouseProc _proc; // kept alive to avoid GC of the callback
-    private IntPtr _hook;
+    private readonly Action<int, int>? _onClick;
 
     private Thread? _thread;
-    private uint _threadId;
-
-    private POINT _downPt;
-    private uint _downTime;
+    private volatile bool _stop;
     private readonly Dictionary<string, long> _lastOpen = new(StringComparer.OrdinalIgnoreCase);
 
-    public DesktopClickWatcher(Func<string, bool> isOurFolder, Action<string> open)
+    public DesktopClickWatcher(Func<string, bool> isOurFolder, Action<string> open,
+        Action<int, int>? onClick = null)
     {
         _isOurFolder = isOurFolder;
         _open = open;
-        _proc = HookProc;
+        _onClick = onClick;
     }
 
     public void Install()
     {
-        _thread = new Thread(HookThread)
+        _thread = new Thread(PollLoop)
         {
             IsBackground = true,
-            Name = "GlassFolders.MouseHook",
+            Name = "GlassFolders.ClickWatcher",
+            // High priority so a desktop redraw (e.g. after an app closes) can't starve the
+            // poll and make it miss a click. The thread sleeps ~99% of the time, so this is cheap.
+            Priority = ThreadPriority.Highest,
         };
         _thread.Start();
     }
 
-    private void HookThread()
+    private void PollLoop()
     {
-        _threadId = GetCurrentThreadId();
-        try
-        {
-            using var proc = Process.GetCurrentProcess();
-            using var mod = proc.MainModule!;
-            _hook = SetWindowsHookEx(WH_MOUSE_LL, _proc, GetModuleHandle(mod.ModuleName), 0);
-        }
-        catch { return; /* single-click is a nice-to-have; double-click always works */ }
+        bool wasDown = false;
+        POINT downPt = default;
+        long downTime = 0;
 
-        // Pump messages so the hook is always serviced on THIS thread, never the UI thread.
-        while (GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
+        while (!_stop)
         {
-            TranslateMessage(ref msg);
-            DispatchMessage(ref msg);
-        }
+            bool down = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
-        if (_hook != IntPtr.Zero) { UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; }
-    }
-
-    private IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam)
-    {
-        if (nCode >= 0)
-        {
-            int msg = (int)wParam;
-            if (msg == WM_LBUTTONDOWN)
+            if (down && !wasDown)
             {
-                var s = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                _downPt = s.pt;
-                _downTime = s.time;
+                GetCursorPos(out downPt);
+                downTime = Environment.TickCount64;
             }
-            else if (msg == WM_LBUTTONUP)
+            else if (!down && wasDown)
             {
-                var s = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                int dx = s.pt.x - _downPt.x, dy = s.pt.y - _downPt.y;
-                uint dt = s.time - _downTime;
-                // Treat as a click only if it barely moved and was quick (not a drag).
+                GetCursorPos(out var upPt);
+                long dt = Environment.TickCount64 - downTime;
+                int dx = upPt.x - downPt.x, dy = upPt.y - downPt.y;
+                // A click, not a drag: barely moved and quick.
                 if (dx * dx + dy * dy <= 36 && dt < 700)
-                    EvaluateClick(s.pt);
+                {
+                    _onClick?.Invoke(upPt.x, upPt.y); // let the app dismiss an open panel if outside it
+                    EvaluateClick(upPt);
+                }
             }
+
+            wasDown = down;
+            Thread.Sleep(8);
         }
-        return CallNextHookEx(_hook, nCode, wParam, lParam);
     }
 
     private void EvaluateClick(POINT pt)
     {
-        // UI Automation FromPoint can be slow; never run it on the hook thread.
+        // UI Automation FromPoint can be slow; never run it on the polling thread.
         Task.Run(() =>
         {
             try
             {
                 var p = new System.Windows.Point(pt.x, pt.y);
-                var el = AutomationElement.FromPoint(p);
-                // On a busy system FromPoint can momentarily return nothing; one quick retry.
-                if (el is null) { System.Threading.Thread.Sleep(30); el = AutomationElement.FromPoint(p); }
-                if (el is null) return;
-                if (el.Current.ControlType != ControlType.ListItem) return; // desktop icons are list items
+                string? matched = null;
 
-                string name = el.Current.Name;
-                if (string.IsNullOrEmpty(name) || !_isOurFolder(name)) return;
+                // Right after an app closes, Explorer redraws the desktop ("flash") and for a
+                // moment FromPoint returns null or the desktop container instead of the icon.
+                // Retry briefly while the result is inconclusive; bail out immediately on a
+                // decisive non-folder hit (another icon or a real window) so we don't waste time.
+                for (int attempt = 0; attempt < 8; attempt++)
+                {
+                    AutomationElement? el;
+                    try { el = AutomationElement.FromPoint(p); } catch { el = null; }
 
-                // De-dupe only the same physical double-click; keep it short so a deliberate
-                // re-click right after closing the folder still opens it.
+                    if (el != null)
+                    {
+                        var ct = el.Current.ControlType;
+                        var name = el.Current.Name;
+
+                        if (ct == ControlType.ListItem)
+                        {
+                            if (!string.IsNullOrEmpty(name) && _isOurFolder(name))
+                            {
+                                matched = name;
+                                Diag.Log($"click ({pt.x},{pt.y}) attempt {attempt}: MATCH '{name}'");
+                                break;
+                            }
+                            Diag.Log($"click ({pt.x},{pt.y}) attempt {attempt}: ListItem '{name}' (not ours) -> stop");
+                            return; // a different desktop icon — done
+                        }
+
+                        // Only the desktop background/containers are worth retrying through the
+                        // redraw. A real window/control means the click wasn't on the desktop.
+                        bool desktopish = ct == ControlType.List || ct == ControlType.Pane
+                            || ct == ControlType.Group || ct == ControlType.Custom;
+                        if (!desktopish)
+                        {
+                            Diag.Log($"click ({pt.x},{pt.y}) attempt {attempt}: {ct.ProgrammaticName} '{name}' -> stop");
+                            return;
+                        }
+                        Diag.Log($"click ({pt.x},{pt.y}) attempt {attempt}: {ct.ProgrammaticName} '{name}' -> retry");
+                    }
+                    else
+                    {
+                        Diag.Log($"click ({pt.x},{pt.y}) attempt {attempt}: null -> retry");
+                    }
+
+                    Thread.Sleep(55);
+                }
+
+                if (matched is null) return;
+
                 long now = Environment.TickCount64;
                 lock (_lastOpen)
                 {
-                    if (_lastOpen.TryGetValue(name, out var last) && now - last < 300) return;
-                    _lastOpen[name] = now;
+                    if (_lastOpen.TryGetValue(matched, out var last) && now - last < 300)
+                    { Diag.Log($"  dedup-skip {matched}"); return; }
+                    _lastOpen[matched] = now;
                 }
-                _open(name);
+                Diag.Log($"  -> open {matched}");
+                _open(matched);
             }
             catch { }
         });
@@ -126,8 +151,7 @@ public sealed class DesktopClickWatcher : IDisposable
 
     public void Dispose()
     {
-        // Ask the hook thread's message loop to exit; it unhooks on the way out.
-        if (_threadId != 0) PostThreadMessage(_threadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
-        _thread?.Join(1000);
+        _stop = true;
+        _thread?.Join(500);
     }
 }

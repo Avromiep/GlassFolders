@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Liquid Folders";
-    public const string AppVersion = "0.1.2";
+    public const string AppVersion = "0.1.3";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -22,6 +22,16 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Safety net: a stray UI-thread exception must never take down the whole tray app
+        // (folders would silently stop working). Log it and keep running.
+        DispatcherUnhandledException += (_, ex) =>
+        {
+            LogCrash("Dispatcher", ex.Exception);
+            ex.Handled = true;
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, ex) =>
+            LogCrash("AppDomain", ex.ExceptionObject as Exception);
 
         if (e.Args.Length >= 1 && e.Args[0].Equals("--selftest", StringComparison.OrdinalIgnoreCase))
         {
@@ -76,8 +86,10 @@ public partial class App : Application
         // Single-click on one of our desktop folder icons opens it (rest of desktop unchanged).
         _clickWatcher = new DesktopClickWatcher(
             isOurFolder: name => _store.FindByName(name) != null,
-            // BeginInvoke (not Invoke) so a busy UI thread can never block the hook's worker.
-            open: name => Dispatcher.BeginInvoke(() => Dispatch(name, new List<string>())));
+            // BeginInvoke (not Invoke) so a busy UI thread can never block the watcher's worker.
+            open: name => Dispatcher.BeginInvoke(() => Dispatch(name, new List<string>())),
+            // Close an open panel when a click lands outside it (doesn't rely on window focus).
+            onClick: (x, y) => Dispatcher.BeginInvoke(() => CloseIfOutside(x, y)));
         _clickWatcher.Install();
 
         Dispatch(openName, filesToAdd);
@@ -419,12 +431,44 @@ public partial class App : Application
         OpenPanel(folder, forceReopen: filesToAdd.Count > 0);
     }
 
+    private static void LogCrash(string source, Exception? ex)
+    {
+        Diag.Log($"UNHANDLED ({source}): {ex}");
+        try
+        {
+            File.AppendAllText(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "liquidfolders-crash.log"),
+                $"{DateTime.Now:u} [{source}] {ex}{Environment.NewLine}");
+        }
+        catch { }
+    }
+
+    /// <summary>Closes any open panel whose window rectangle doesn't contain the click point.</summary>
+    private void CloseIfOutside(int x, int y)
+    {
+        if (_openPanels.Count == 0) return;
+        foreach (var win in _openPanels.Values.ToList())
+        {
+            try
+            {
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(win).Handle;
+                if (hwnd == IntPtr.Zero) continue;
+                NativeMethods.GetWindowRect(hwnd, out var r);
+                bool inside = x >= r.Left && x < r.Right && y >= r.Top && y < r.Bottom;
+                Diag.Log($"closeIfOutside ({x},{y}) rect=({r.Left},{r.Top},{r.Right},{r.Bottom}) inside={inside}");
+                if (!inside) win.Close();
+            }
+            catch { }
+        }
+    }
+
     /// <summary>Opens the folder's panel, or focuses it if already open (prevents duplicates
     /// from a single-click + double-click both firing).</summary>
     private void OpenPanel(FolderModel folder, bool forceReopen)
     {
         if (_openPanels.TryGetValue(folder.Name, out var existing))
         {
+            Diag.Log($"openPanel '{folder.Name}' existing loaded={existing.IsLoaded} visible={existing.IsVisible} forceReopen={forceReopen}");
             // Only reuse a genuinely open/visible panel; otherwise it's a stale reference
             // (a panel that closed or never finished opening) — drop it and open fresh.
             if (!forceReopen && existing.IsLoaded && existing.IsVisible)
@@ -436,12 +480,14 @@ public partial class App : Application
             _openPanels.Remove(folder.Name);
         }
 
+        Diag.Log($"openPanel create '{folder.Name}' (open panels was {_openPanels.Count})");
         var win = new ExpandedPanelWindow(_store, folder);
         _openPanels[folder.Name] = win;
         win.Closed += (_, _) =>
         {
             if (_openPanels.TryGetValue(folder.Name, out var w) && ReferenceEquals(w, win))
                 _openPanels.Remove(folder.Name);
+            Diag.Log($"panel '{folder.Name}' Closed event");
         };
         win.Show();
     }
