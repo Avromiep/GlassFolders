@@ -16,7 +16,20 @@ public sealed class ShortcutItem
 public sealed class FolderModel
 {
     public const int PageSize = 9;
-    public const int DefaultFrostiness = 45;
+    public const int DefaultFrostiness = 55;
+
+    /// <summary>
+    /// Frostiness (0..100) -> white-veil opacity. Anchored so the default (55) gives the light,
+    /// faded-colour look that used to be around 20 — i.e. the scale is stretched: 55 == old ~20.
+    /// 0 = nearly clear glass, 55 = light frost, 100 = heavy frost.
+    /// </summary>
+    public static double TintOpacity(int frostiness)
+    {
+        int v = Math.Clamp(frostiness, 0, 100);
+        return v <= DefaultFrostiness
+            ? 0.06 + (v / (double)DefaultFrostiness) * (0.40 - 0.06)
+            : 0.40 + ((v - DefaultFrostiness) / (double)(100 - DefaultFrostiness)) * (0.95 - 0.40);
+    }
 
     public required string Name { get; set; }
     public required string DirectoryPath { get; init; }

@@ -159,41 +159,79 @@ public static class IconComposer
         try
         {
             var panelRect = DrawFrostedPanel(g, size);
-            if (size >= 24) DrawGear(g, panelRect);
+
+            // Cool the app tile with an icy blue wash so it reads as frost, not plain glass.
+            float radius = size * 0.22f;
+            using (var panelPath = RoundedRect(panelRect, radius))
+            using (var wash = new LinearGradientBrush(panelRect,
+                       Color.FromArgb(70, 150, 205, 240),
+                       Color.FromArgb(36, 74, 140, 205),
+                       LinearGradientMode.Vertical))
+            {
+                var clip = g.Clip;
+                g.SetClip(panelPath);
+                g.FillRectangle(wash, panelRect);
+                g.Clip = clip;
+            }
+
+            DrawSnowflake(g, panelRect, size);
             return bmp;
         }
         finally { g.Dispose(); }
     }
 
-    /// <summary>A settings gear centered in the panel — the app/launcher icon.</summary>
-    private static void DrawGear(Graphics g, RectangleF panel)
+    /// <summary>A six-armed frost crystal centered in the tile — the app/launcher icon.</summary>
+    private static void DrawSnowflake(Graphics g, RectangleF panel, int size)
     {
         float cx = panel.X + panel.Width / 2f;
         float cy = panel.Y + panel.Height / 2f;
-        float rOuter = panel.Width * 0.30f;
-        float rInner = panel.Width * 0.235f;
-        float rHole = panel.Width * 0.11f;
-        const int teeth = 8;
-        int steps = teeth * 2;
+        float armLen = panel.Width * 0.34f;
+        float branchLen = armLen * 0.30f;
+        // The finer branch detail vanishes below ~40px; keep the bare star so it still reads.
+        bool detailed = size >= 40;
 
-        using var gear = new GraphicsPath();
-        var pts = new PointF[steps];
-        for (int i = 0; i < steps; i++)
+        PointF P(float len, float angDeg)
         {
-            float a = (float)(i * Math.PI / teeth);
-            float r = (i % 2 == 0) ? rOuter : rInner;
-            pts[i] = new PointF(cx + r * (float)Math.Cos(a), cy + r * (float)Math.Sin(a));
+            double a = angDeg * Math.PI / 180.0;
+            return new PointF(cx + len * (float)Math.Cos(a), cy + len * (float)Math.Sin(a));
         }
-        gear.AddPolygon(pts);
-        gear.AddEllipse(cx - rHole, cy - rHole, rHole * 2, rHole * 2);
-        gear.FillMode = FillMode.Alternate; // the ellipse becomes the center hole
 
-        using var brush = new LinearGradientBrush(
-            new RectangleF(cx - rOuter, cy - rOuter, rOuter * 2, rOuter * 2),
-            Color.FromArgb(240, 74, 122, 196),
-            Color.FromArgb(240, 44, 82, 148),
-            LinearGradientMode.ForwardDiagonal);
-        g.FillPath(brush, gear);
+        void Flake(Pen pen)
+        {
+            for (int k = 0; k < 6; k++)
+            {
+                float arm = k * 60f;
+                g.DrawLine(pen, new PointF(cx, cy), P(armLen, arm));
+
+                if (!detailed) continue;
+                foreach (float pos in new[] { armLen * 0.46f, armLen * 0.74f })
+                {
+                    var b = P(pos, arm);
+                    foreach (int side in new[] { -1, 1 })
+                    {
+                        double ba = (arm + side * 38f) * Math.PI / 180.0;
+                        g.DrawLine(pen, b,
+                            new PointF(b.X + branchLen * (float)Math.Cos(ba),
+                                       b.Y + branchLen * (float)Math.Sin(ba)));
+                    }
+                }
+            }
+        }
+
+        float mainW = Math.Max(1.4f, panel.Width * 0.030f);
+
+        // Soft blue glow underneath, then the crisp icy-white crystal on top.
+        using (var glow = new Pen(Color.FromArgb(120, 120, 185, 230), mainW * 2.1f)
+        { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            Flake(glow);
+        using (var main = new Pen(Color.FromArgb(245, 244, 250, 255), mainW)
+        { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            Flake(main);
+
+        // Center hub.
+        float hub = mainW * 1.7f;
+        using (var hb = new SolidBrush(Color.FromArgb(255, 248, 252, 255)))
+            g.FillEllipse(hb, cx - hub, cy - hub, hub * 2, hub * 2);
     }
 
     private static void DrawGrid(Graphics g, RectangleF panel, List<Bitmap> sources, int cols)

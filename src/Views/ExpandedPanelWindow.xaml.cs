@@ -12,7 +12,7 @@ namespace GlassFolders.Views;
 public partial class ExpandedPanelWindow : Window
 {
     private readonly FolderStore _store;
-    private readonly FolderModel _folder;
+    private FolderModel _folder;
     private int _pageIndex;
     private int _blurFactor = 11;
     private bool _closeArmed;
@@ -42,14 +42,23 @@ public partial class ExpandedPanelWindow : Window
     }
 
     // ---- Drag an app OUT of the folder to remove it (drop it outside the glass) ----
+    //
+    // The app physically leaves the folder (dropped outside => removed). While dragging, the
+    // source tile is hidden so its slot goes empty (iOS style) and a floating "ghost" — the app's
+    // own icon with a red minus badge — rides under the cursor, replacing Windows' red no-drop
+    // circle. So there's only ever one visible icon: the one under the cursor.
 
     private ShortcutItem? _dragOutItem;
+    private Button? _dragOutButton;
     private Point _dragOutStart;
     private bool _dragOutActive;
+    private Window? _dragGhost;
+    private UIElement? _dragGhostBadge;
 
     private void ItemsGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        _dragOutItem = FindItem(e.OriginalSource as DependencyObject);
+        _dragOutButton = FindButton(e.OriginalSource as DependencyObject);
+        _dragOutItem = _dragOutButton?.Tag as ShortcutItem;
         _dragOutStart = e.GetPosition(this);
         _dragOutActive = false;
     }
@@ -63,9 +72,27 @@ public partial class ExpandedPanelWindow : Window
 
         _dragOutActive = true;
         var item = _dragOutItem;
+        var sourceButton = _dragOutButton;
+
+        // Don't let the panel self-close while a topmost ghost briefly appears mid-drag.
+        bool priorSuppress = SuppressAutoClose;
+        SuppressAutoClose = true;
+
+        // Empty the source slot and lift the icon onto the cursor.
+        if (sourceButton != null) sourceButton.Visibility = Visibility.Hidden;
+        ShowGhost(item);
+        ItemsGrid.GiveFeedback += Drag_GiveFeedback;
+        ItemsGrid.QueryContinueDrag += Drag_QueryContinueDrag;
+
         try { DragDrop.DoDragDrop(ItemsGrid, item, DragDropEffects.Move); } catch { }
 
+        ItemsGrid.GiveFeedback -= Drag_GiveFeedback;
+        ItemsGrid.QueryContinueDrag -= Drag_QueryContinueDrag;
+        CloseGhost();
+
         // Dropped outside the glass panel -> remove it from the folder (iOS "drag out").
+        // Dropped back inside -> restore the tile (nothing removed).
+        bool removed = false;
         try
         {
             NativeMethods.GetCursorPos(out var c);
@@ -75,19 +102,166 @@ public partial class ExpandedPanelWindow : Window
             double sy = src?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
             double fw = Frost.ActualWidth * sx, fh = Frost.ActualHeight * sy;
             bool inside = c.x >= tl.X && c.x <= tl.X + fw && c.y >= tl.Y && c.y <= tl.Y + fh;
-            if (!inside) RemoveItem(item);
+            if (!inside) { RemoveItem(item); removed = true; }
         }
         catch { }
 
+        if (!removed && sourceButton != null) sourceButton.Visibility = Visibility.Visible;
+
+        SuppressAutoClose = priorSuppress;
         _dragOutActive = false;
         _dragOutItem = null;
+        _dragOutButton = null;
     }
 
-    private static ShortcutItem? FindItem(DependencyObject? d)
+    private void Drag_GiveFeedback(object sender, GiveFeedbackEventArgs e)
+    {
+        // Hide the OS drag cursor (incl. the red no-drop circle) — the ghost is the pointer now.
+        e.UseDefaultCursors = false;
+        Mouse.SetCursor(Cursors.None);
+        e.Handled = true;
+    }
+
+    private void Drag_QueryContinueDrag(object sender, QueryContinueDragEventArgs e)
+    {
+        if (_dragGhost == null || !NativeMethods.GetCursorPos(out var c)) return;
+        MoveGhost(c.x, c.y);
+        // The minus badge only means "let go here to remove" — show it once the cursor leaves
+        // the glass. Inside the folder the drag reads as a plain rearrange, so keep it hidden.
+        if (_dragGhostBadge != null)
+            _dragGhostBadge.Visibility = CursorInsideFrost(c.x, c.y)
+                ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>True if the given screen point (device px) is over the glass panel.</summary>
+    private bool CursorInsideFrost(int px, int py)
+    {
+        try
+        {
+            var tl = Frost.PointToScreen(new Point(0, 0));
+            var src = PresentationSource.FromVisual(this);
+            double sx = src?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+            double sy = src?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
+            double fw = Frost.ActualWidth * sx, fh = Frost.ActualHeight * sy;
+            return px >= tl.X && px <= tl.X + fw && py >= tl.Y && py <= tl.Y + fh;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Creates the floating icon-with-minus-badge that follows the cursor during a drag-out.</summary>
+    private void ShowGhost(ShortcutItem item)
+    {
+        try
+        {
+            var icon = new System.Windows.Controls.Image
+            {
+                Source = ImageHelper.LoadIcon(item.LnkPath, 64),
+                Width = 50,
+                Height = 50,
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    Color = Colors.Black,
+                    BlurRadius = 11,
+                    ShadowDepth = 2,
+                    Opacity = 0.35,
+                },
+            };
+
+            var badge = new Grid
+            {
+                Width = 22,
+                Height = 22,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(1, 1, 0, 0),
+                // Starts hidden: the drag begins inside the folder. It appears when the cursor
+                // crosses outside the glass (see Drag_QueryContinueDrag).
+                Visibility = Visibility.Collapsed,
+            };
+            badge.Children.Add(new System.Windows.Shapes.Ellipse
+            {
+                Fill = new SolidColorBrush(Color.FromRgb(0xE0, 0x3A, 0x35)),
+                Stroke = Brushes.White,
+                StrokeThickness = 1.6,
+            });
+            badge.Children.Add(new System.Windows.Shapes.Rectangle
+            {
+                Width = 10,
+                Height = 2.6,
+                RadiusX = 1.3,
+                RadiusY = 1.3,
+                Fill = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+
+            var root = new Grid { Width = 62, Height = 62 };
+            root.Children.Add(icon);
+            root.Children.Add(badge);
+            _dragGhostBadge = badge;
+
+            _dragGhost = new Window
+            {
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = Brushes.Transparent,
+                ShowInTaskbar = false,
+                ShowActivated = false,
+                Topmost = true,
+                ResizeMode = ResizeMode.NoResize,
+                IsHitTestVisible = false,
+                SizeToContent = SizeToContent.Manual,
+                Width = 62,
+                Height = 62,
+                Content = root,
+            };
+            _dragGhost.Show();
+
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(_dragGhost).Handle;
+            int ex = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
+            NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE,
+                ex | NativeMethods.WS_EX_TRANSPARENT | NativeMethods.WS_EX_NOACTIVATE | NativeMethods.WS_EX_TOOLWINDOW);
+
+            if (NativeMethods.GetCursorPos(out var c)) MoveGhost(c.x, c.y);
+        }
+        catch { _dragGhost = null; }
+    }
+
+    private void MoveGhost(int cursorX, int cursorY)
+    {
+        if (_dragGhost == null) return;
+        try
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(_dragGhost).Handle;
+            var src = PresentationSource.FromVisual(_dragGhost);
+            double scale = src?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+            int pxW = (int)Math.Round(_dragGhost.Width * scale);
+            int pxH = (int)Math.Round(_dragGhost.Height * scale);
+            // Centre the icon on the cursor, lifted slightly up so the badge stays clear of it.
+            int x = cursorX - pxW / 2;
+            int y = cursorY - pxH / 2 - (int)Math.Round(6 * scale);
+            NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOPMOST, x, y, 0, 0,
+                NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
+        }
+        catch { }
+    }
+
+    private void CloseGhost()
+    {
+        _dragGhostBadge = null;
+        if (_dragGhost == null) return;
+        try { _dragGhost.Close(); } catch { }
+        _dragGhost = null;
+    }
+
+    private static Button? FindButton(DependencyObject? d)
     {
         while (d != null)
         {
-            if (d is Button b && b.Tag is ShortcutItem si) return si;
+            if (d is Button b && b.Tag is ShortcutItem) return b;
             d = VisualTreeHelper.GetParent(d);
         }
         return null;
@@ -96,12 +270,13 @@ public partial class ExpandedPanelWindow : Window
     /// <summary>Maps 0..100 frostiness to tint opacity and blur strength.</summary>
     private void ApplyFrostiness(int frostiness)
     {
-        double f = Math.Clamp(frostiness, 0, 100) / 100.0;
-        // Uniform white veil: effective opacity == this value (brush is solid white).
-        // Opaque enough at the default that the wallpaper's bright-center/dark-edge variation
-        // no longer reads through — so the frost looks even everywhere.
-        TintLayer.Opacity = Math.Clamp(0.18 + f * 1.10, 0, 1); // 0.18 clear .. 1.0; 55 -> ~0.79
-        _blurFactor = (int)Math.Round(10 + f * 28);            // 10 .. 38 (strong, uniform smear)
+        int v = Math.Clamp(frostiness, 0, 100);
+        // Uniform white veil (solid brush) using the shared scale: 55 == old ~20 (light, faded).
+        TintLayer.Opacity = FolderModel.TintOpacity(v);
+        double blur = v <= FolderModel.DefaultFrostiness
+            ? 4 + (v / (double)FolderModel.DefaultFrostiness) * (16 - 4)
+            : 16 + ((v - FolderModel.DefaultFrostiness) / (double)(100 - FolderModel.DefaultFrostiness)) * (34 - 16);
+        _blurFactor = (int)Math.Round(blur);
     }
 
     private void OnLoaded(object? sender, RoutedEventArgs e)
@@ -374,6 +549,48 @@ public partial class ExpandedPanelWindow : Window
             case Key.Left: ChangePage(-1); break;
             case Key.Right: ChangePage(+1); break;
         }
+    }
+
+    // ---- Rename by clicking the title ----
+
+    private void TitleText_Click(object sender, MouseButtonEventArgs e)
+    {
+        TitleEdit.Text = _folder.Name;
+        TitleText.Visibility = Visibility.Collapsed;
+        TitleEdit.Visibility = Visibility.Visible;
+        TitleEdit.Focus();
+        TitleEdit.SelectAll();
+    }
+
+    private void TitleEdit_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter) { CommitRename(); e.Handled = true; }
+        else if (e.Key == Key.Escape) { EndEdit(); e.Handled = true; } // cancel; don't close panel
+    }
+
+    private void TitleEdit_LostFocus(object sender, RoutedEventArgs e) => CommitRename();
+
+    private void EndEdit()
+    {
+        TitleEdit.Visibility = Visibility.Collapsed;
+        TitleText.Visibility = Visibility.Visible;
+    }
+
+    private void CommitRename()
+    {
+        if (TitleEdit.Visibility != Visibility.Visible) return;
+        var newName = TitleEdit.Text?.Trim();
+        EndEdit();
+        if (string.IsNullOrWhiteSpace(newName) || newName == _folder.Name) return;
+        try
+        {
+            _store.RenameFolder(_folder, newName);
+            var reloaded = _store.FindByName(FolderStore.Sanitize(newName));
+            if (reloaded != null) _folder = reloaded; // dir moved, so items' paths changed
+            TitleText.Text = _folder.Name;
+            RenderPage();
+        }
+        catch { }
     }
 
     // ---- Actions ----

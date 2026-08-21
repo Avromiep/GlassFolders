@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Liquid Folders";
-    public const string AppVersion = "0.1.4";
+    public const string AppVersion = "0.1.5";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -36,6 +36,14 @@ public partial class App : Application
         if (e.Args.Length >= 1 && e.Args[0].Equals("--selftest", StringComparison.OrdinalIgnoreCase))
         {
             SelfTest.Run(e.Args.Length >= 2 ? e.Args[1] : ".");
+            Shutdown();
+            return;
+        }
+
+        if (e.Args.Length >= 1 && e.Args[0].Equals("--makeicon", StringComparison.OrdinalIgnoreCase))
+        {
+            var outPath = e.Args.Length >= 2 ? e.Args[1] : "app.ico";
+            try { Services.IconComposer.BuildAppIcon(System.IO.Path.GetFullPath(outPath)); } catch { }
             Shutdown();
             return;
         }
@@ -516,7 +524,7 @@ public partial class App : Application
     {
         _tray = new WinForms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = LoadAppIcon() ?? System.Drawing.SystemIcons.Application,
             Visible = true,
             Text = AppName,
         };
@@ -526,6 +534,17 @@ public partial class App : Application
         menu.Items.Add("Exit", null, (_, _) => Dispatcher.Invoke(ExitApp));
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowManager);
+    }
+
+    /// <summary>The frost app icon, taken from the exe's own embedded icon (ApplicationIcon).</summary>
+    private static System.Drawing.Icon? LoadAppIcon()
+    {
+        try
+        {
+            var exe = Environment.ProcessPath ?? System.Reflection.Assembly.GetEntryAssembly()?.Location;
+            return exe != null ? System.Drawing.Icon.ExtractAssociatedIcon(exe) : null;
+        }
+        catch { return null; }
     }
 
     private void ExitApp()

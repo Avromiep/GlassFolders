@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Liquid Folders" Height="660" Width="1000"
         MinWidth="760" MinHeight="500"
+        Icon="/Assets/app.ico"
         WindowStyle="None" AllowsTransparency="False" Background="Transparent"
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13"
@@ -224,14 +225,8 @@
             <!-- Title bar -->
             <Grid Grid.Row="0" Margin="14,0,8,0">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Width="18" Height="18" CornerRadius="6" Margin="0,0,10,0">
-                        <Border.Background>
-                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                <GradientStop Color="#6FA0FF" Offset="0"/>
-                                <GradientStop Color="#8C6BFF" Offset="1"/>
-                            </LinearGradientBrush>
-                        </Border.Background>
-                    </Border>
+                    <Image Source="/Assets/app.ico" Width="20" Height="20" Margin="0,0,10,0"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
                     <TextBlock Text="Liquid Folders" FontWeight="SemiBold" FontSize="13.5"
                                Foreground="{DynamicResource Fg}" VerticalAlignment="Center"/>
                 </StackPanel>

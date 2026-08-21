@@ -500,11 +500,12 @@ public partial class ManagerWindow : Window
     private void UpdateGlass(int frostiness)
     {
         if (MainBlurEffect == null || MainTint == null) return;
-        double f = Math.Clamp(frostiness, 0, 100) / 100.0;
-        // Keep the live WPF blur modest (cost scales with radius); the opaque tint does most
-        // of the frosting, so this stays light even on weak/software-rendered GPUs.
-        MainBlurEffect.Radius = 5 + f * 15;                      // 5 .. 20 (was up to 50)
-        MainTint.Opacity = Math.Clamp(0.18 + f * 1.10, 0, 1);   // matches the panel veil
+        int v = Math.Clamp(frostiness, 0, 100);
+        // Same scale as the panel (55 == old ~20). Keep the live WPF blur modest for weak GPUs.
+        MainTint.Opacity = FolderModel.TintOpacity(v);
+        MainBlurEffect.Radius = v <= FolderModel.DefaultFrostiness
+            ? 2 + (v / (double)FolderModel.DefaultFrostiness) * (8 - 2)
+            : 8 + ((v - FolderModel.DefaultFrostiness) / (double)(100 - FolderModel.DefaultFrostiness)) * (20 - 8);
     }
 
     private void OnDesktop_Click(object sender, RoutedEventArgs e)

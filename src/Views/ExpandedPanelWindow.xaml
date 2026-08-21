@@ -102,14 +102,21 @@
                         Background="#FFFFFFFF"/>
 
                 <DockPanel Margin="22,16,22,14" LastChildFill="True">
-                <!-- Title -->
-                <TextBlock x:Name="TitleText" DockPanel.Dock="Top"
-                           FontSize="17" FontWeight="SemiBold" Foreground="#15181D"
-                           HorizontalAlignment="Center" Margin="0,2,0,14">
-                    <TextBlock.Effect>
-                        <DropShadowEffect BlurRadius="7" ShadowDepth="0" Opacity="0.85" Color="#FFFFFF"/>
-                    </TextBlock.Effect>
-                </TextBlock>
+                <!-- Title (click to rename) -->
+                <Grid DockPanel.Dock="Top" Margin="0,2,0,14">
+                    <TextBlock x:Name="TitleText" FontSize="17" FontWeight="SemiBold" Foreground="#15181D"
+                               HorizontalAlignment="Center" Cursor="Hand" ToolTip="Click to rename"
+                               MouseLeftButtonUp="TitleText_Click">
+                        <TextBlock.Effect>
+                            <DropShadowEffect BlurRadius="7" ShadowDepth="0" Opacity="0.85" Color="#FFFFFF"/>
+                        </TextBlock.Effect>
+                    </TextBlock>
+                    <TextBox x:Name="TitleEdit" FontSize="17" FontWeight="SemiBold" Foreground="#15181D"
+                             HorizontalAlignment="Center" TextAlignment="Center" MinWidth="140"
+                             Visibility="Collapsed" Padding="6,1" CaretBrush="#15181D"
+                             Background="#59FFFFFF" BorderBrush="#66000000" BorderThickness="0,0,0,1.5"
+                             KeyDown="TitleEdit_KeyDown" LostKeyboardFocus="TitleEdit_LostFocus"/>
+                </Grid>
 
                 <!-- Page dots -->
                 <ItemsControl x:Name="Dots" DockPanel.Dock="Bottom" Margin="0,12,0,2"
