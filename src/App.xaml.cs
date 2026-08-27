@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Liquid Folders";
-    public const string AppVersion = "0.1.7";
+    public const string AppVersion = "0.1.8";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -114,6 +114,7 @@ public partial class App : Application
         SetupTray();
         RegenerateAllIcons();   // refresh closed icons (e.g. after an extractor fix)
         EnsureManagerShortcut(); // desktop launcher that opens the manager/settings window
+        PrewarmIcons();          // warm the tile-icon cache so the first open is snappy too
 
         // Single-click on one of our desktop folder icons opens it (rest of desktop unchanged).
         _clickWatcher = new DesktopClickWatcher(
@@ -395,6 +396,21 @@ public partial class App : Application
             DesktopIntegration.PublishManagerShortcut(AppName, icoPath);
         }
         catch { }
+    }
+
+    /// <summary>Warms the tile-icon cache (size 64) for every folder's first page, off the UI
+    /// thread, so opening a folder doesn't pay for shell icon extraction on the hot path.</summary>
+    private void PrewarmIcons()
+    {
+        Task.Run(() =>
+        {
+            try
+            {
+                foreach (var f in _store.ListFolders())
+                    ImageHelper.Prewarm(f.FirstPagePaths(), 64);
+            }
+            catch { }
+        });
     }
 
     /// <summary>Rebuilds every folder's composite icon so desktop icons stay in sync.</summary>

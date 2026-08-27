@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -7,11 +8,37 @@ namespace GlassFolders.Services;
 
 public static class ImageHelper
 {
-    /// <summary>Loads a shell icon for a path as a WPF ImageSource at the given size.</summary>
+    // Shell icon extraction is slow (tens of ms each); a folder re-extracted all 9 tile icons
+    // on every open, which is the visible "open delay". Cache the frozen ImageSource per
+    // (path, size, shortcut-mtime) so repeat opens are instant. Frozen bitmaps are thread-safe,
+    // so we can also pre-warm this from a background thread at startup.
+    private static readonly ConcurrentDictionary<string, BitmapImage> _iconCache = new();
+
+    /// <summary>Loads a shell icon for a path as a WPF ImageSource at the given size (cached).</summary>
     public static BitmapImage? LoadIcon(string path, int size)
     {
+        var key = CacheKey(path, size);
+        if (_iconCache.TryGetValue(key, out var cached)) return cached;
+
         using var bmp = IconExtractor.GetIcon(path, size);
-        return bmp == null ? null : ToImageSource(bmp);
+        if (bmp == null) return null;
+        var img = ToImageSource(bmp);
+        _iconCache[key] = img;
+        return img;
+    }
+
+    /// <summary>Warms the cache for a set of shortcuts (call off the UI thread at startup).</summary>
+    public static void Prewarm(IEnumerable<string> paths, int size)
+    {
+        foreach (var p in paths)
+            try { LoadIcon(p, size); } catch { }
+    }
+
+    private static string CacheKey(string path, int size)
+    {
+        long ticks = 0;
+        try { ticks = File.GetLastWriteTimeUtc(path).Ticks; } catch { }
+        return $"{path}|{size}|{ticks}";
     }
 
     public static BitmapImage ToImageSource(Bitmap bmp)

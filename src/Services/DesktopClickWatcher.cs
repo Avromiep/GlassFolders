@@ -43,6 +43,13 @@ public sealed class DesktopClickWatcher : IDisposable
             Priority = ThreadPriority.Highest,
         };
         _thread.Start();
+
+        // Warm up UI Automation off-thread: the very first FromPoint in a process pays a one-time
+        // COM init cost (can be 100ms+), which would otherwise land on the user's first click.
+        Task.Run(() =>
+        {
+            try { _ = AutomationElement.FromPoint(new System.Windows.Point(0, 0)); } catch { }
+        });
     }
 
     private void PollLoop()

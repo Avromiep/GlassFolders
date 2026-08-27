@@ -281,7 +281,9 @@ public partial class ExpandedPanelWindow : Window
 
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         RenderPage();
+        long tRender = sw.ElapsedMilliseconds;
 
         // Finalize size (SizeToContent settles here) BEFORE positioning, so the bottom/center
         // anchors use the real height — otherwise the bottom row spills off-screen.
@@ -291,6 +293,8 @@ public partial class ExpandedPanelWindow : Window
 
         // Grab the wallpaper behind the panel (window is still Opacity=0, so the grab is clean).
         CaptureAndBlurBackground();
+        long tCapture = sw.ElapsedMilliseconds - tRender;
+        Services.Diag.Log($"panel '{_folder.Name}' open-prep render={tRender}ms capture={tCapture}ms total={sw.ElapsedMilliseconds}ms");
 
         PlayOpenAnimation();
 
@@ -441,13 +445,13 @@ public partial class ExpandedPanelWindow : Window
     private void PlayOpenAnimation()
     {
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        var scale = new DoubleAnimation(0.9, 1.0, TimeSpan.FromMilliseconds(170)) { EasingFunction = ease };
+        var scale = new DoubleAnimation(0.92, 1.0, TimeSpan.FromMilliseconds(115)) { EasingFunction = ease };
         OpenScale.CenterX = ActualWidth / 2;
         OpenScale.CenterY = ActualHeight / 2;
         OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, scale);
         OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, scale);
         // Fade the whole (layered) window in from the transparent state used during capture.
-        BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(150)));
+        BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(95)));
     }
 
     // ---- Paging ----
