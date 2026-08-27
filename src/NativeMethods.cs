@@ -184,6 +184,11 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool SetForegroundWindow(IntPtr hWnd);
 
+    // Give the process a stable taskbar/Start identity distinct from the per-folder pins.
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    internal static extern void SetCurrentProcessExplicitAppUserModelID(
+        [MarshalAs(UnmanagedType.LPWStr)] string AppID);
+
     // ---- Position the drag "ghost" window under the cursor (device pixels, no activation) ----
 
     internal static readonly IntPtr HWND_TOPMOST = new(-1);

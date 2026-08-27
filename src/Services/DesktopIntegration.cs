@@ -24,6 +24,19 @@ public static class DesktopIntegration
         Path.Combine(DesktopDir, folderName + ".lnk");
 
     /// <summary>
+    /// A per-folder AppUserModelID so a taskbar/Start pin of this shortcut is its own app and
+    /// launches on click (opening the folder), rather than being coalesced with — and trying to
+    /// activate — our windowless tray process. Must be &lt;=128 chars, no spaces.
+    /// </summary>
+    public static string AppUserModelIdFor(string folderName)
+    {
+        var slug = new string(folderName.Where(c => char.IsLetterOrDigit(c)).ToArray());
+        if (slug.Length == 0) slug = "Folder";
+        if (slug.Length > 90) slug = slug[..90];
+        return "Avromiep.LiquidFolders.Folder." + slug;
+    }
+
+    /// <summary>
     /// Creates/updates the desktop .lnk. Its target is our own exe with `--open`, so a
     /// double-click pops the expanded panel instead of launching a program.
     /// </summary>
@@ -37,7 +50,8 @@ public static class DesktopIntegration
             iconPath: icoPath,
             iconIndex: 0,
             description: $"Glass folder: {folder.Name}",
-            workingDirectory: AppContext.BaseDirectory);
+            workingDirectory: AppContext.BaseDirectory,
+            appUserModelId: AppUserModelIdFor(folder.Name));
 
         RefreshIcon(lnkPath);
     }

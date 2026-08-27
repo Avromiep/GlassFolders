@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Liquid Folders";
-    public const string AppVersion = "0.1.6";
+    public const string AppVersion = "0.1.7";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -22,6 +22,10 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Stable app identity so our own windows group under one taskbar id, distinct from the
+        // per-folder shortcut ids (which need to launch, not activate this process).
+        try { NativeMethods.SetCurrentProcessExplicitAppUserModelID("Avromiep.LiquidFolders"); } catch { }
 
         // Safety net: a stray UI-thread exception must never take down the whole tray app
         // (folders would silently stop working). Log it and keep running.
@@ -38,6 +42,24 @@ public partial class App : Application
         if (e.Args.Length >= 1 && e.Args[0].Equals("--selftest", StringComparison.OrdinalIgnoreCase))
         {
             SelfTest.Run(e.Args.Length >= 2 ? e.Args[1] : ".");
+            Shutdown();
+            return;
+        }
+
+        if (e.Args.Length >= 1 && e.Args[0].Equals("--linktest", StringComparison.OrdinalIgnoreCase))
+        {
+            var dir = e.Args.Length >= 2 ? e.Args[1] : System.IO.Path.GetTempPath();
+            var lnk = System.IO.Path.Combine(dir, "aumidtest.lnk");
+            const string want = "Avromiep.LiquidFolders.Folder.TestXYZ";
+            try
+            {
+                Services.ShellLink.Create(lnk, targetPath: Environment.ProcessPath ?? "C:\\Windows\\explorer.exe",
+                    arguments: "--open \"Test\"", appUserModelId: want);
+                var got = Services.ShellLink.ReadAppUserModelId(lnk);
+                File.WriteAllText(System.IO.Path.Combine(dir, "linktest.txt"),
+                    $"want={want}\ngot={got}\nresult={(got == want ? "PASS" : "FAIL")}");
+            }
+            catch (Exception ex) { File.WriteAllText(System.IO.Path.Combine(dir, "linktest.txt"), "ERROR: " + ex); }
             Shutdown();
             return;
         }

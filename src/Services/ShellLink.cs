@@ -16,7 +16,8 @@ public static class ShellLink
         string? iconPath = null,
         int iconIndex = 0,
         string? description = null,
-        string? workingDirectory = null)
+        string? workingDirectory = null,
+        string? appUserModelId = null)
     {
         var link = (IShellLinkW)new CShellLink();
         link.SetPath(targetPath);
@@ -25,11 +26,45 @@ public static class ShellLink
         if (workingDirectory != null) link.SetWorkingDirectory(workingDirectory);
         if (iconPath != null) link.SetIconLocation(iconPath, iconIndex);
 
+        // A distinct AppUserModelID makes the taskbar/Start treat this shortcut as its own app,
+        // so clicking a pinned copy LAUNCHES it (which opens the folder) instead of trying to
+        // focus our windowless tray process — the reason a pinned folder used to do nothing.
+        if (appUserModelId != null)
+        {
+            var store = (IPropertyStore)link;
+            var key = PKEY_AppUserModel_ID;
+            // Build a VT_LPWSTR PROPVARIANT by hand; PropVariantClear frees the string for us.
+            var pv = new PROPVARIANT { vt = VT_LPWSTR, p = Marshal.StringToCoTaskMemUni(appUserModelId) };
+            try { store.SetValue(ref key, ref pv); store.Commit(); }
+            finally { PropVariantClear(ref pv); }
+        }
+
         var file = (IPersistFile)link;
         file.Save(lnkPath, true);
 
         Marshal.ReleaseComObject(file);
         Marshal.ReleaseComObject(link);
+    }
+
+    /// <summary>Reads back the AppUserModelID set on a .lnk (null if none). Used to verify writes.</summary>
+    public static string? ReadAppUserModelId(string lnkPath)
+    {
+        try
+        {
+            var link = (IShellLinkW)new CShellLink();
+            var file = (IPersistFile)link;
+            file.Load(lnkPath, 0);
+            var store = (IPropertyStore)link;
+            var key = PKEY_AppUserModel_ID;
+            store.GetValue(ref key, out var pv);
+            string? result = pv.vt == VT_LPWSTR && pv.p != IntPtr.Zero
+                ? Marshal.PtrToStringUni(pv.p) : null;
+            PropVariantClear(ref pv);
+            Marshal.ReleaseComObject(file);
+            Marshal.ReleaseComObject(link);
+            return result;
+        }
+        catch { return null; }
     }
 
     /// <summary>Resolves the target path a .lnk points at (best effort).</summary>
@@ -53,6 +88,38 @@ public static class ShellLink
             return null;
         }
     }
+
+    // ---- AppUserModelID (taskbar/Start identity) plumbing ----
+
+    // PKEY_AppUserModel_ID = {9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}, pid 5.
+    private static PROPERTYKEY PKEY_AppUserModel_ID => new()
+    {
+        fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"),
+        pid = 5,
+    };
+
+    private const ushort VT_LPWSTR = 31;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROPERTYKEY { public Guid fmtid; public uint pid; }
+
+    // Opaque PROPVARIANT (x64 layout: 8 bytes header + two pointer-sized slots for the union).
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROPVARIANT { public ushort vt; public ushort w1, w2, w3; public IntPtr p; public IntPtr p2; }
+
+    [ComImport, Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IPropertyStore
+    {
+        void GetCount(out uint cProps);
+        void GetAt(uint iProp, out PROPERTYKEY pkey);
+        void GetValue(ref PROPERTYKEY key, out PROPVARIANT pv);
+        void SetValue(ref PROPERTYKEY key, ref PROPVARIANT pv);
+        void Commit();
+    }
+
+    [DllImport("ole32.dll")]
+    private static extern int PropVariantClear(ref PROPVARIANT pvar);
 
     [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
     private class CShellLink { }
