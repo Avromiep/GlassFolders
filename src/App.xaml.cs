@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Liquid Folders";
-    public const string AppVersion = "0.1.8";
+    public const string AppVersion = "0.1.9";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;

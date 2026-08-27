@@ -140,7 +140,15 @@ public sealed class DesktopClickWatcher : IDisposable
                     Thread.Sleep(55);
                 }
 
-                if (matched is null) return;
+                if (matched is null)
+                {
+                    // The click didn't resolve to one of our folders. Log the REAL window under the
+                    // cursor (Win32, independent of UI Automation) so we can see what's covering the
+                    // desktop icons — WorkerW (slideshow/Spotlight wallpaper), a remote-session shell,
+                    // a management tool, etc. This is why single-click can silently do nothing.
+                    Diag.Log("  " + DescribeWindowAt(pt));
+                    return;
+                }
 
                 long now = Environment.TickCount64;
                 lock (_lastOpen)
@@ -154,6 +162,37 @@ public sealed class DesktopClickWatcher : IDisposable
             }
             catch { }
         });
+    }
+
+    /// <summary>Names the actual window under a screen point (and its top-level root), via Win32.
+    /// Used to diagnose why a desktop click can't see our folder icons.</summary>
+    private static string DescribeWindowAt(POINT pt)
+    {
+        try
+        {
+            var h = WindowFromPoint(pt);
+            var root = GetAncestor(h, GA_ROOT);
+            return $"under-cursor: hwnd={h} class='{ClassOf(h)}' title='{TextOf(h)}'"
+                 + $" | root class='{ClassOf(root)}' title='{TextOf(root)}'";
+        }
+        catch (Exception ex) { return "under-cursor: describe failed: " + ex.Message; }
+    }
+
+    private static string ClassOf(IntPtr h)
+    {
+        if (h == IntPtr.Zero) return "";
+        var sb = new System.Text.StringBuilder(256);
+        GetClassName(h, sb, sb.Capacity);
+        return sb.ToString();
+    }
+
+    private static string TextOf(IntPtr h)
+    {
+        if (h == IntPtr.Zero) return "";
+        var sb = new System.Text.StringBuilder(256);
+        GetWindowTextW(h, sb, sb.Capacity);
+        var s = sb.ToString();
+        return s.Length > 60 ? s[..60] + "…" : s;
     }
 
     public void Dispose()
