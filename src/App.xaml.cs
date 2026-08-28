@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Liquid Folders";
-    public const string AppVersion = "0.1.9";
+    public const string AppVersion = "0.2.0";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -43,6 +43,30 @@ public partial class App : Application
         {
             SelfTest.Run(e.Args.Length >= 2 ? e.Args[1] : ".");
             Shutdown();
+            return;
+        }
+
+        if (e.Args.Length >= 1 && e.Args[0].Equals("--updatetest", StringComparison.OrdinalIgnoreCase))
+        {
+            var dir = e.Args.Length >= 2 ? e.Args[1] : System.IO.Path.GetTempPath();
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                var sb = new System.Text.StringBuilder();
+                try
+                {
+                    var r = await Services.UpdateService.CheckAsync("0.0.1"); // force "update available"
+                    sb.AppendLine($"status={r.Status} latest={r.LatestVersion} setupUrl={r.SetupUrl}");
+                    if (r.SetupUrl != null)
+                    {
+                        var p = new Progress<int>(_ => { });
+                        var f = await Services.AppUpdater.DownloadAsync(r.SetupUrl, p, System.Threading.CancellationToken.None);
+                        sb.AppendLine($"downloaded={f} bytes={new System.IO.FileInfo(f).Length}");
+                    }
+                }
+                catch (Exception ex) { sb.AppendLine("ERROR: " + ex); }
+                try { File.WriteAllText(System.IO.Path.Combine(dir, "updatetest.txt"), sb.ToString()); } catch { }
+                Dispatcher.Invoke(Shutdown);
+            });
             return;
         }
 
@@ -115,6 +139,7 @@ public partial class App : Application
         RegenerateAllIcons();   // refresh closed icons (e.g. after an extractor fix)
         EnsureManagerShortcut(); // desktop launcher that opens the manager/settings window
         PrewarmIcons();          // warm the tile-icon cache so the first open is snappy too
+        CheckForUpdatesInBackground(); // passive check → tray balloon if a newer version exists
 
         // Single-click on one of our desktop folder icons opens it (rest of desktop unchanged).
         _clickWatcher = new DesktopClickWatcher(
@@ -396,6 +421,30 @@ public partial class App : Application
             DesktopIntegration.PublishManagerShortcut(AppName, icoPath);
         }
         catch { }
+    }
+
+    /// <summary>Passive startup update check; on a newer release, nudge via a tray balloon.</summary>
+    private void CheckForUpdatesInBackground()
+    {
+        Task.Run(async () =>
+        {
+            try
+            {
+                var r = await UpdateService.CheckAsync(AppVersion);
+                if (r.Status == UpdateStatus.UpdateAvailable)
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        try
+                        {
+                            _tray?.ShowBalloonTip(6000, "Update available",
+                                $"Liquid Folders {r.LatestVersion} is ready. Open Liquid Folders → Settings to install.",
+                                WinForms.ToolTipIcon.Info);
+                        }
+                        catch { }
+                    });
+            }
+            catch { }
+        });
     }
 
     /// <summary>Warms the tile-icon cache (size 64) for every folder's first page, off the UI

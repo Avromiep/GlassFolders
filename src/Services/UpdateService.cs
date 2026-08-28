@@ -6,7 +6,11 @@ namespace GlassFolders.Services;
 
 public enum UpdateStatus { UpToDate, UpdateAvailable, NoReleases, Error }
 
-public sealed record UpdateResult(UpdateStatus Status, string? LatestVersion, string? Url, string? Message);
+public sealed record UpdateResult(UpdateStatus Status, string? LatestVersion, string? Url, string? Message)
+{
+    /// <summary>Direct download URL of the LiquidFolders-Setup.exe asset (for in-app install).</summary>
+    public string? SetupUrl { get; init; }
+}
 
 /// <summary>
 /// Checks the latest GitHub release for a newer version (WhisperText-style).
@@ -42,12 +46,25 @@ public static class UpdateService
             string tag = root.TryGetProperty("tag_name", out var t) ? t.GetString() ?? "" : "";
             string htmlUrl = root.TryGetProperty("html_url", out var h) ? h.GetString() ?? "" : "";
 
+            // Find the installer asset so we can download + install it in-app (no browser).
+            string? setupUrl = null;
+            if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
+                foreach (var a in assets.EnumerateArray())
+                {
+                    var name = a.TryGetProperty("name", out var nm) ? nm.GetString() ?? "" : "";
+                    if (name.EndsWith("Setup.exe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        setupUrl = a.TryGetProperty("browser_download_url", out var u) ? u.GetString() : null;
+                        break;
+                    }
+                }
+
             var latest = ParseVersion(tag);
             var current = ParseVersion(currentVersion);
             if (latest == null)
                 return new(UpdateStatus.Error, tag, htmlUrl, "Couldn't parse the release version.");
             if (current != null && latest > current)
-                return new(UpdateStatus.UpdateAvailable, tag, htmlUrl, null);
+                return new(UpdateStatus.UpdateAvailable, tag, htmlUrl, null) { SetupUrl = setupUrl };
             return new(UpdateStatus.UpToDate, tag, htmlUrl, null);
         }
         catch (Exception ex)

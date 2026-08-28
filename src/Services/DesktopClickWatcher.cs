@@ -94,6 +94,7 @@ public sealed class DesktopClickWatcher : IDisposable
             {
                 var p = new System.Windows.Point(pt.x, pt.y);
                 string? matched = null;
+                bool sawFolderList = false; // did FromPoint ever resolve the desktop icon List?
 
                 // Right after an app closes, Explorer redraws the desktop ("flash") and for a
                 // moment FromPoint returns null or the desktop container instead of the icon.
@@ -123,6 +124,7 @@ public sealed class DesktopClickWatcher : IDisposable
 
                         // Only the desktop background/containers are worth retrying through the
                         // redraw. A real window/control means the click wasn't on the desktop.
+                        if (ct == ControlType.List) sawFolderList = true; // FromPoint sees the desktop list
                         bool desktopish = ct == ControlType.List || ct == ControlType.Pane
                             || ct == ControlType.Group || ct == ControlType.Custom;
                         if (!desktopish)
@@ -142,12 +144,19 @@ public sealed class DesktopClickWatcher : IDisposable
 
                 if (matched is null)
                 {
-                    // The click didn't resolve to one of our folders. Log the REAL window under the
-                    // cursor (Win32, independent of UI Automation) so we can see what's covering the
-                    // desktop icons — WorkerW (slideshow/Spotlight wallpaper), a remote-session shell,
-                    // a management tool, etc. This is why single-click can silently do nothing.
+                    // FromPoint didn't resolve to one of our folders. On some machines (notably
+                    // multi-monitor + mixed DPI) UI Automation's FromPoint mis-maps the coordinates
+                    // and returns a blank Pane even though the desktop icon list is perfectly normal
+                    // (Win32 finds SysListView32/FolderView fine). Fall back to anchoring on that
+                    // list by window handle (reliable) and hit-testing each icon's BoundingRectangle.
                     Diag.Log("  " + DescribeWindowAt(pt));
-                    return;
+                    // Only bother with the Win32-anchored fallback when FromPoint couldn't even see
+                    // the desktop List — i.e. it's mis-mapping. If it saw the list, the user just
+                    // clicked empty space between icons, so there's nothing to open.
+                    if (sawFolderList) return;
+                    matched = TryMatchViaListView(pt);
+                    if (matched is null) return;
+                    Diag.Log($"  fallback MATCH '{matched}' via desktop listview");
                 }
 
                 long now = Environment.TickCount64;
@@ -162,6 +171,56 @@ public sealed class DesktopClickWatcher : IDisposable
             }
             catch { }
         });
+    }
+
+    /// <summary>
+    /// Fallback icon detection that doesn't use UIA FromPoint: get the desktop icon list by the
+    /// window handle Win32 reports under the point, then find the ListItem whose bounding box
+    /// contains the (physical) click point. Logs enough to diagnose if the rects are in an
+    /// unexpected coordinate space.
+    /// </summary>
+    private string? TryMatchViaListView(POINT pt)
+    {
+        try
+        {
+            var h = WindowFromPoint(pt);
+            var cls = ClassOf(h);
+            if (cls != "SysListView32")
+            {
+                Diag.Log($"  listview-fallback: not a desktop list (class='{cls}')");
+                return null;
+            }
+
+            var listEl = AutomationElement.FromHandle(h);
+            if (listEl == null) return null;
+            var items = listEl.FindAll(TreeScope.Children,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem));
+            var p = new System.Windows.Point(pt.x, pt.y);
+
+            foreach (AutomationElement it in items)
+            {
+                System.Windows.Rect r;
+                string name;
+                try { r = it.Current.BoundingRectangle; name = it.Current.Name; } catch { continue; }
+                if (r.Contains(p))
+                {
+                    Diag.Log($"  listview-fallback: hit '{name}' rect=({r.X:0},{r.Y:0},{r.Width:0}x{r.Height:0}) of {items.Count} items");
+                    return !string.IsNullOrEmpty(name) && _isOurFolder(name) ? name : null;
+                }
+            }
+
+            // No rect contained the point — dump a few so we can see the coordinate space vs the click.
+            Diag.Log($"  listview-fallback: no rect contained ({pt.x},{pt.y}) among {items.Count} items; sample:");
+            int shown = 0;
+            foreach (AutomationElement it in items)
+            {
+                if (shown++ >= 4) break;
+                try { var r = it.Current.BoundingRectangle; Diag.Log($"    '{it.Current.Name}' rect=({r.X:0},{r.Y:0},{r.Width:0}x{r.Height:0})"); }
+                catch { }
+            }
+            return null;
+        }
+        catch (Exception ex) { Diag.Log("  listview-fallback error: " + ex.Message); return null; }
     }
 
     /// <summary>Names the actual window under a screen point (and its top-level root), via Win32.

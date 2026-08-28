@@ -11,6 +11,7 @@ public partial class SettingsWindow : Window
     private readonly FolderStore _store;
     private readonly Action _onFoldersChanged;
     private string? _downloadUrl;
+    private string? _setupUrl;
 
     public SettingsWindow(FolderStore store, Action onFoldersChanged)
     {
@@ -64,6 +65,8 @@ public partial class SettingsWindow : Window
             case UpdateStatus.UpdateAvailable:
                 UpdateStatusText.Text = $"Update available: {r.LatestVersion}.";
                 _downloadUrl = r.Url;
+                _setupUrl = r.SetupUrl;
+                DownloadButton.Content = _setupUrl != null ? "Download and install" : "Open download page";
                 DownloadButton.Visibility = Visibility.Visible;
                 break;
             case UpdateStatus.NoReleases:
@@ -75,10 +78,33 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private void Download_Click(object sender, RoutedEventArgs e)
+    private async void Download_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrEmpty(_downloadUrl)) return;
-        try { Process.Start(new ProcessStartInfo(_downloadUrl) { UseShellExecute = true }); } catch { }
+        // No installer asset (older release / fork): fall back to opening the release page.
+        if (string.IsNullOrEmpty(_setupUrl))
+        {
+            if (!string.IsNullOrEmpty(_downloadUrl))
+                try { Process.Start(new ProcessStartInfo(_downloadUrl) { UseShellExecute = true }); } catch { }
+            return;
+        }
+
+        DownloadButton.IsEnabled = false;
+        CheckButton.IsEnabled = false;
+        var progress = new Progress<int>(p => UpdateStatusText.Text = $"Downloading update… {p}%");
+        try
+        {
+            var setup = await AppUpdater.DownloadAsync(_setupUrl, progress, System.Threading.CancellationToken.None);
+            UpdateStatusText.Text = "Installing… Liquid Folders will restart.";
+            AppUpdater.RunInstaller(setup);
+            await System.Threading.Tasks.Task.Delay(700); // let the installer start before we release the files
+            Application.Current.Shutdown();
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText.Text = "Update failed: " + ex.Message;
+            DownloadButton.IsEnabled = true;
+            CheckButton.IsEnabled = true;
+        }
     }
 
     // ---- Import / export ----
@@ -124,11 +150,16 @@ public partial class SettingsWindow : Window
     {
         try
         {
-            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-            var dest = System.IO.Path.Combine(desktop,
-                $"LiquidFolders-log-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+            // Save a timestamped copy into a dedicated "saved logs" folder (not the Desktop),
+            // then open Explorer with it selected so it's easy to attach.
+            var dir = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Diag.Path)!, "saved");
+            System.IO.Directory.CreateDirectory(dir);
+            var dest = System.IO.Path.Combine(dir, $"LiquidFolders-log-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
             if (Diag.SaveCopyTo(dest))
-                DiagStatus.Text = $"Saved to your Desktop: {System.IO.Path.GetFileName(dest)}";
+            {
+                DiagStatus.Text = $"Saved to your logs folder: {System.IO.Path.GetFileName(dest)}";
+                try { Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{dest}\"")); } catch { }
+            }
             else
                 DiagStatus.Text = "No log yet — open a folder or two first, then try again.";
         }

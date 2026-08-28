@@ -117,8 +117,8 @@
                     <StackPanel Orientation="Horizontal">
                         <Button x:Name="CheckButton" Style="{StaticResource AccentBtn}"
                                 Content="Check for updates" Click="Check_Click"/>
-                        <Button x:Name="DownloadButton" Style="{StaticResource Ghost}" Margin="10,0,0,0"
-                                Content="Download" Visibility="Collapsed" Click="Download_Click"/>
+                        <Button x:Name="DownloadButton" Style="{StaticResource AccentBtn}" Margin="10,0,0,0"
+                                Content="Download and install" Visibility="Collapsed" Click="Download_Click"/>
                     </StackPanel>
                     <TextBlock x:Name="UpdateStatusText" Foreground="{DynamicResource FgDim}" FontSize="12.5"
                                TextWrapping="Wrap" Margin="0,10,0,0"/>
@@ -150,11 +150,11 @@
                     <TextBlock Text="Diagnostics" FontWeight="SemiBold" Foreground="{DynamicResource Fg}"
                                Margin="0,0,0,4"/>
                     <TextBlock Foreground="{DynamicResource FgDim}" FontSize="12.5" TextWrapping="Wrap"
-                               Text="If a folder isn't opening reliably, reproduce it a few times, then save the log and send it over."
+                               Text="If a folder isn't opening reliably, reproduce it a few times, then save the log and send it over. It's saved to a dedicated logs folder."
                                Margin="0,0,0,12"/>
                     <StackPanel Orientation="Horizontal">
                         <Button x:Name="SaveLogButton" Style="{StaticResource Ghost}"
-                                Content="Save log to Desktop" Click="SaveLog_Click"/>
+                                Content="Save a copy of the log" Click="SaveLog_Click"/>
                         <Button x:Name="OpenLogButton" Style="{StaticResource Ghost}" Margin="10,0,0,0"
                                 Content="Open log folder" Click="OpenLog_Click"/>
                     </StackPanel>
