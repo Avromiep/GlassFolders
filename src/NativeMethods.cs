@@ -224,6 +224,19 @@ internal static class NativeMethods
     [DllImport("kernel32.dll")]
     internal static extern uint GetCurrentThreadId();
 
+    // Keep our working set resident so Windows doesn't page us out to disk while idle in the tray
+    // (that paging is why the first folder open "after a while" is slow, then fast afterward).
+    internal const uint QUOTA_LIMITS_HARDWS_MIN_ENABLE = 0x00000001;
+    internal const uint QUOTA_LIMITS_HARDWS_MAX_DISABLE = 0x00000008;
+
+    [DllImport("kernel32.dll")]
+    internal static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetProcessWorkingSetSizeEx(IntPtr hProcess,
+        IntPtr dwMinimumWorkingSetSize, IntPtr dwMaximumWorkingSetSize, uint flags);
+
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, [MarshalAs(UnmanagedType.Bool)] bool fAttach);

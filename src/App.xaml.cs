@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.2.9";
+    public const string AppVersion = "0.3.0";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -135,6 +135,7 @@ public partial class App : Application
 
         _store = new FolderStore();
         _single.StartServer(OnIpcMessage);
+        KeepResident();         // don't get paged to disk while idle → first open "after a while" stays fast
         SetupTray();
         MaybeRegenerateIcons(); // only after an update — avoids the desktop "flash" on every login
         EnsureManagerShortcut(); // desktop launcher that opens the manager/settings window
@@ -458,6 +459,25 @@ public partial class App : Application
         catch { }
     }
 
+    /// <summary>
+    /// Ask Windows to keep a minimum working set resident so it doesn't page us out to disk while
+    /// the app sits idle in the tray. Without this, the first folder open after a long idle stretch
+    /// has to fault all our pages (WPF, JIT'd code, icons) back in — the "slow the first time, fast
+    /// after" behavior. It only sets a floor; the OS reclaims the rest normally.
+    /// </summary>
+    private static void KeepResident()
+    {
+        try
+        {
+            NativeMethods.SetProcessWorkingSetSizeEx(
+                NativeMethods.GetCurrentProcess(),
+                (IntPtr)(80L * 1024 * 1024),    // keep ~80 MB resident (the hot open path)
+                (IntPtr)(1024L * 1024 * 1024),  // max is not enforced (flag below), just a ceiling
+                NativeMethods.QUOTA_LIMITS_HARDWS_MIN_ENABLE | NativeMethods.QUOTA_LIMITS_HARDWS_MAX_DISABLE);
+        }
+        catch { }
+    }
+
     /// <summary>Passive startup update check; on a newer release, nudge via a tray balloon.</summary>
     private void CheckForUpdatesInBackground()
     {
@@ -640,7 +660,9 @@ public partial class App : Application
         }
 
         Diag.Log($"openPanel create '{folder.Name}' (open panels was {_openPanels.Count})");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var win = new ExpandedPanelWindow(_store, folder) { AnchorPoint = anchor };
+        long tCtor = sw.ElapsedMilliseconds;
         _openPanels[folder.Name] = win;
         win.Closed += (_, _) =>
         {
@@ -649,6 +671,7 @@ public partial class App : Application
             Diag.Log($"panel '{folder.Name}' Closed event");
         };
         win.Show();
+        Diag.Log($"openPanel show '{folder.Name}' ctor={tCtor}ms show={sw.ElapsedMilliseconds - tCtor}ms");
     }
 
     private void ShowManager()
