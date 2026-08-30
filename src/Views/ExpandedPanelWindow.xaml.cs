@@ -339,23 +339,44 @@ public partial class ExpandedPanelWindow : Window
             // Capture a padded region AROUND the panel so the blur near the panel's edges has
             // real neighbours to mix with — otherwise the edges look less frosted than the
             // centre (a blur has fewer samples at an image edge). Then crop back to the panel.
-            int pad = (int)Math.Round(70 * sx);
+            int pad = (int)Math.Round(45 * sx);
             int cx = (int)topLeft.X - pad, cy = (int)topLeft.Y - pad;
             int cw = w + pad * 2, ch = h + pad * 2;
 
+            var _sw = System.Diagnostics.Stopwatch.StartNew();
             using var shot = new System.Drawing.Bitmap(cw, ch, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             using (var g = System.Drawing.Graphics.FromImage(shot))
                 g.CopyFromScreen(cx, cy, 0, 0, new System.Drawing.Size(cw, ch));
+            long _tCopy = _sw.ElapsedMilliseconds;
 
             using var blurredBig = DownUpBlur(shot, _blurFactor);
+            long _tBlur = _sw.ElapsedMilliseconds - _tCopy;
             using var cropped = new System.Drawing.Bitmap(w, h);
             using (var g2 = System.Drawing.Graphics.FromImage(cropped))
                 g2.DrawImage(blurredBig, new System.Drawing.Rectangle(0, 0, w, h),
                     new System.Drawing.Rectangle(pad, pad, w, h), System.Drawing.GraphicsUnit.Pixel);
 
-            Frost.Background = new ImageBrush(ImageHelper.ToImageSource(cropped)) { Stretch = Stretch.Fill };
+            // Direct GDI->WPF handoff (no PNG encode/decode round-trip). The captured wallpaper is
+            // opaque, so we don't need alpha here — this shaves ~30ms off every open.
+            Frost.Background = new ImageBrush(FastBitmapSource(cropped)) { Stretch = Stretch.Fill };
+            Services.Diag.Log($"  capture split: copy={_tCopy}ms blur={_tBlur}ms convert={_sw.ElapsedMilliseconds - _tCopy - _tBlur}ms ({cw}x{ch})");
         }
         catch { /* leave the transparent background; tint + rim still read as glass */ }
+    }
+
+    /// <summary>Fast GDI bitmap -> WPF BitmapSource without a PNG encode (opaque images only).</summary>
+    private static System.Windows.Media.Imaging.BitmapSource FastBitmapSource(System.Drawing.Bitmap bmp)
+    {
+        IntPtr h = bmp.GetHbitmap();
+        try
+        {
+            var s = System.Windows.Interop.Imaging.CreateBitmapSourceFromHBitmap(
+                h, IntPtr.Zero, Int32Rect.Empty,
+                System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
+            s.Freeze();
+            return s;
+        }
+        finally { NativeMethods.DeleteObject(h); }
     }
 
     /// <summary>
@@ -374,8 +395,8 @@ public partial class ExpandedPanelWindow : Window
             var next = new System.Drawing.Bitmap(nw, nh);
             using (var g = System.Drawing.Graphics.FromImage(next))
             {
-                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
-                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
                 g.DrawImage(cur, 0, 0, nw, nh);
             }
             if (ownCur) cur.Dispose();
@@ -388,8 +409,8 @@ public partial class ExpandedPanelWindow : Window
         var small = new System.Drawing.Bitmap(fw, fh);
         using (var g = System.Drawing.Graphics.FromImage(small))
         {
-            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
-            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
             g.DrawImage(cur, 0, 0, fw, fh);
         }
         if (ownCur) cur.Dispose();
@@ -397,8 +418,8 @@ public partial class ExpandedPanelWindow : Window
         var big = new System.Drawing.Bitmap(srcBmp.Width, srcBmp.Height);
         using (var gg = System.Drawing.Graphics.FromImage(big))
         {
-            gg.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
-            gg.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            gg.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
+            gg.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
             gg.DrawImage(small, new System.Drawing.Rectangle(0, 0, big.Width, big.Height));
         }
         small.Dispose();
@@ -443,13 +464,13 @@ public partial class ExpandedPanelWindow : Window
     private void PlayOpenAnimation()
     {
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        var scale = new DoubleAnimation(0.92, 1.0, TimeSpan.FromMilliseconds(115)) { EasingFunction = ease };
+        var scale = new DoubleAnimation(0.95, 1.0, TimeSpan.FromMilliseconds(80)) { EasingFunction = ease };
         OpenScale.CenterX = ActualWidth / 2;
         OpenScale.CenterY = ActualHeight / 2;
         OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, scale);
         OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, scale);
         // Fade the whole (layered) window in from the transparent state used during capture.
-        BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(95)));
+        BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(55)));
     }
 
     // ---- Paging ----

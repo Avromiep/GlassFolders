@@ -90,6 +90,7 @@ public sealed class DesktopClickWatcher : IDisposable
         // UI Automation FromPoint can be slow; never run it on the polling thread.
         Task.Run(() =>
         {
+            var _detectSw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 var p = new System.Windows.Point(pt.x, pt.y);
@@ -166,7 +167,7 @@ public sealed class DesktopClickWatcher : IDisposable
                     { Diag.Log($"  dedup-skip {matched}"); return; }
                     _lastOpen[matched] = now;
                 }
-                Diag.Log($"  -> open {matched} at ({pt.x},{pt.y})");
+                Diag.Log($"  -> open {matched} at ({pt.x},{pt.y}) detect={_detectSw.ElapsedMilliseconds}ms");
                 _open(matched, pt.x, pt.y); // anchor the panel to the clicked icon's screen
             }
             catch { }
