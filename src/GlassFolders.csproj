@@ -11,7 +11,7 @@
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AssemblyName>GlassFolders</AssemblyName>
     <RootNamespace>GlassFolders</RootNamespace>
-    <Version>0.2.3</Version>
+    <Version>0.2.4</Version>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <!-- WPF drives DPI via the app manifest; silence WinForms' DPI-config warning. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>

@@ -9,8 +9,8 @@ namespace GlassFolders;
 
 public partial class App : Application
 {
-    public const string AppName = "Liquid Folders";
-    public const string AppVersion = "0.2.3";
+    public const string AppName = "Glass Folders";
+    public const string AppVersion = "0.2.4";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -25,7 +25,7 @@ public partial class App : Application
 
         // Stable app identity so our own windows group under one taskbar id, distinct from the
         // per-folder shortcut ids (which need to launch, not activate this process).
-        try { NativeMethods.SetCurrentProcessExplicitAppUserModelID("Avromiep.LiquidFolders"); } catch { }
+        try { NativeMethods.SetCurrentProcessExplicitAppUserModelID("Avromiep.GlassFolders"); } catch { }
 
         // Safety net: a stray UI-thread exception must never take down the whole tray app
         // (folders would silently stop working). Log it and keep running.
@@ -74,7 +74,7 @@ public partial class App : Application
         {
             var dir = e.Args.Length >= 2 ? e.Args[1] : System.IO.Path.GetTempPath();
             var lnk = System.IO.Path.Combine(dir, "aumidtest.lnk");
-            const string want = "Avromiep.LiquidFolders.Folder.TestXYZ";
+            const string want = "Avromiep.GlassFolders.Folder.TestXYZ";
             try
             {
                 Services.ShellLink.Create(lnk, targetPath: Environment.ProcessPath ?? "C:\\Windows\\explorer.exe",
@@ -419,6 +419,15 @@ public partial class App : Application
             if (!File.Exists(icoPath))
                 IconComposer.BuildAppIcon(icoPath);
             DesktopIntegration.PublishManagerShortcut(AppName, icoPath);
+
+            // Remove the pre-rename launcher ("Liquid Folders.lnk") if it's still on the desktop.
+            try
+            {
+                var legacy = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Liquid Folders.lnk");
+                if (File.Exists(legacy)) File.Delete(legacy);
+            }
+            catch { }
         }
         catch { }
     }
@@ -437,7 +446,7 @@ public partial class App : Application
                         try
                         {
                             _tray?.ShowBalloonTip(6000, "Update available",
-                                $"Liquid Folders {r.LatestVersion} is ready. Open Liquid Folders → Settings to install.",
+                                $"Glass Folders {r.LatestVersion} is ready. Open Glass Folders → Settings to install.",
                                 WinForms.ToolTipIcon.Info);
                         }
                         catch { }
@@ -538,7 +547,7 @@ public partial class App : Application
         try
         {
             File.AppendAllText(
-                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "liquidfolders-crash.log"),
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "glassfolders-crash.log"),
                 $"{DateTime.Now:u} [{source}] {ex}{Environment.NewLine}");
         }
         catch { }

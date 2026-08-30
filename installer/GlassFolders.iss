@@ -1,12 +1,12 @@
-; Inno Setup script for Liquid Folders.
+; Inno Setup script for Glass Folders.
 ; Builds a real per-user installer that registers in "Apps & features" /
 ; Programs and Features with a proper uninstaller. No admin/UAC required.
 ;
-; Build:  "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer\LiquidFolders.iss
-; Output: dist\LiquidFolders-Setup.exe   (built from dist\LiquidFolders.exe)
+; Build:  "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer\GlassFolders.iss
+; Output: dist\GlassFolders-Setup.exe   (built from dist\GlassFolders.exe)
 
-#define AppName "Liquid Folders"
-#define AppExe "LiquidFolders.exe"
+#define AppName "Glass Folders"
+#define AppExe "GlassFolders.exe"
 #ifndef AppVersion
   #define AppVersion "0.1.6"
 #endif
@@ -17,7 +17,7 @@ AppId={{A7F3C2E1-9B4D-4E6A-8C1F-2D5E7A9B3C4D}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=Avromiep
-AppPublisherURL=https://github.com/Avromiep/LiquidFolders
+AppPublisherURL=https://github.com/Avromiep/GlassFolders
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
@@ -35,11 +35,16 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 OutputDir=..\dist
-OutputBaseFilename=LiquidFolders-Setup
+OutputBaseFilename=GlassFolders-Setup
 SetupIconFile=..\src\Assets\app.ico
 
 [Files]
 Source: "..\dist\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+
+[InstallDelete]
+; Migration: older installs shipped as LiquidFolders.exe — remove it so the folder isn't left
+; with both exes after the rename to Glass Folders.
+Type: files; Name: "{app}\LiquidFolders.exe"
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
@@ -62,10 +67,11 @@ procedure KillApp;
 var
   ResultCode: Integer;
 begin
-  { The app runs as LiquidFolders (exe name) but the assembly is GlassFolders; kill both. }
-  Exec(ExpandConstant('{cmd}'), '/C taskkill /IM LiquidFolders.exe /F', '',
-    SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  { Kill the current exe (GlassFolders.exe) and the legacy one (LiquidFolders.exe) so neither
+    holds a lock during an upgrade from an old install. }
   Exec(ExpandConstant('{cmd}'), '/C taskkill /IM GlassFolders.exe /F', '',
+    SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{cmd}'), '/C taskkill /IM LiquidFolders.exe /F', '',
     SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
@@ -81,7 +87,8 @@ var
   FindRec: TFindRec;
   fp: String;
 begin
-  { The app's own manager launcher. }
+  { The app's own manager launcher (and the legacy one from before the rename). }
+  DeleteFile(ExpandConstant('{userdesktop}\Glass Folders.lnk'));
   DeleteFile(ExpandConstant('{userdesktop}\Liquid Folders.lnk'));
 
   { Each folder places a <Name>.lnk on the desktop; remove those too. }
@@ -116,7 +123,7 @@ begin
     dataDir := ExpandConstant('{localappdata}') + DataRel;
     { Only offer to wipe data in an interactive uninstall; a silent uninstall keeps it. }
     if (not UninstallSilent) and
-       (MsgBox('Also remove your Liquid Folders folders, settings, and their desktop shortcuts?'
+       (MsgBox('Also remove your Glass Folders folders, settings, and their desktop shortcuts?'
         + #13#10 + #13#10
         + 'Choose No to keep them (a reinstall will pick them back up).',
         mbConfirmation, MB_YESNO) = IDYES) then

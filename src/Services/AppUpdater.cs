@@ -14,10 +14,10 @@ public static class AppUpdater
     /// <summary>Downloads the setup to a temp file, reporting 0..100 percent.</summary>
     public static async Task<string> DownloadAsync(string setupUrl, IProgress<int> progress, CancellationToken ct)
     {
-        var dest = Path.Combine(Path.GetTempPath(), "LiquidFolders-Setup.exe");
+        var dest = Path.Combine(Path.GetTempPath(), "GlassFolders-Setup.exe");
 
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("LiquidFolders-Updater");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("GlassFolders-Updater");
 
         using var resp = await http.GetAsync(setupUrl, HttpCompletionOption.ResponseHeadersRead, ct);
         resp.EnsureSuccessStatusCode();

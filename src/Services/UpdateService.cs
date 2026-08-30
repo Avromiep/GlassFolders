@@ -8,7 +8,7 @@ public enum UpdateStatus { UpToDate, UpdateAvailable, NoReleases, Error }
 
 public sealed record UpdateResult(UpdateStatus Status, string? LatestVersion, string? Url, string? Message)
 {
-    /// <summary>Direct download URL of the LiquidFolders-Setup.exe asset (for in-app install).</summary>
+    /// <summary>Direct download URL of the GlassFolders-Setup.exe asset (for in-app install).</summary>
     public string? SetupUrl { get; init; }
 }
 
@@ -21,14 +21,14 @@ public static class UpdateService
 {
     // Set these to your repo when you publish it.
     public const string RepoOwner = "Avromiep";
-    public const string RepoName = "LiquidFolders";
+    public const string RepoName = "GlassFolders";
 
     public static async Task<UpdateResult> CheckAsync(string currentVersion)
     {
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("LiquidFolders-Updater");
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("GlassFolders-Updater");
             http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
 
             var url = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";

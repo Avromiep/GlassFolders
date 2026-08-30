@@ -33,7 +33,7 @@ public static class DesktopIntegration
         var slug = new string(folderName.Where(c => char.IsLetterOrDigit(c)).ToArray());
         if (slug.Length == 0) slug = "Folder";
         if (slug.Length > 90) slug = slug[..90];
-        return "Avromiep.LiquidFolders.Folder." + slug;
+        return "Avromiep.GlassFolders.Folder." + slug;
     }
 
     /// <summary>

@@ -94,7 +94,7 @@ public partial class SettingsWindow : Window
         try
         {
             var setup = await AppUpdater.DownloadAsync(_setupUrl, progress, System.Threading.CancellationToken.None);
-            UpdateStatusText.Text = "Installing… Liquid Folders will restart.";
+            UpdateStatusText.Text = "Installing… Glass Folders will restart.";
             AppUpdater.RunInstaller(setup);
             await System.Threading.Tasks.Task.Delay(700); // let the installer start before we release the files
             Application.Current.Shutdown();
@@ -114,8 +114,8 @@ public partial class SettingsWindow : Window
         var dlg = new SaveFileDialog
         {
             Title = "Export folders",
-            Filter = "Liquid Folders backup (*.json)|*.json",
-            FileName = "liquid-folders.json",
+            Filter = "Glass Folders backup (*.json)|*.json",
+            FileName = "glass-folders.json",
         };
         if (dlg.ShowDialog(this) != true) return;
         try
@@ -131,7 +131,7 @@ public partial class SettingsWindow : Window
         var dlg = new OpenFileDialog
         {
             Title = "Import folders",
-            Filter = "Liquid Folders backup (*.json)|*.json|All files (*.*)|*.*",
+            Filter = "Glass Folders backup (*.json)|*.json|All files (*.*)|*.*",
         };
         if (dlg.ShowDialog(this) != true) return;
         try
@@ -154,7 +154,7 @@ public partial class SettingsWindow : Window
             // then open Explorer with it selected so it's easy to attach.
             var dir = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Diag.Path)!, "saved");
             System.IO.Directory.CreateDirectory(dir);
-            var dest = System.IO.Path.Combine(dir, $"LiquidFolders-log-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+            var dest = System.IO.Path.Combine(dir, $"GlassFolders-log-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
             if (Diag.SaveCopyTo(dest))
             {
                 DiagStatus.Text = $"Saved to your logs folder: {System.IO.Path.GetFileName(dest)}";

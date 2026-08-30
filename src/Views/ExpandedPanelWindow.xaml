@@ -79,7 +79,7 @@
             <ScaleTransform x:Name="OpenScale" CenterX="0" CenterY="0" ScaleX="0.9" ScaleY="0.9"/>
         </Grid.RenderTransform>
 
-        <!-- Liquid glass. Background (the blurred wallpaper) is assigned in code; the Border's
+        <!-- Frosted glass. Background (the blurred wallpaper) is assigned in code; the Border's
              rounded corners clip it. Tint + specular sheen + lit rim give the glossy look. -->
         <Border x:Name="Frost" CornerRadius="34" Width="470" BorderThickness="1.3"
                 Background="Transparent">

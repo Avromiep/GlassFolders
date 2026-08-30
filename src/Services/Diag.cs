@@ -16,10 +16,10 @@ public static class Diag
     public static bool Enabled { get; set; } =
         Environment.GetEnvironmentVariable("LF_DIAG") != "0";
 
-    /// <summary>%LOCALAPPDATA%\GlassFolders\logs\liquidfolders-diag.log</summary>
+    /// <summary>%LOCALAPPDATA%\GlassFolders\logs\glassfolders-diag.log</summary>
     public static string Path { get; } = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "GlassFolders", "logs", "liquidfolders-diag.log");
+        "GlassFolders", "logs", "glassfolders-diag.log");
 
     public static void Log(string msg)
     {

@@ -1,17 +1,17 @@
-# Liquid Folders
+# Glass Folders
 
 **iOS/Android-style app folders for the Windows desktop.** Group your desktop shortcuts into
 beautiful frosted-glass folders that open into a paged grid — just like a phone home screen.
 
 <p align="center">
-  <img src="docs/panel.png" alt="An open Liquid Folder — frosted glass with a 3×3 app grid" width="560">
+  <img src="docs/panel.png" alt="An open Glass Folder — frosted glass with a 3×3 app grid" width="560">
 </p>
 
 A closed folder sits on your desktop as a normal icon showing the apps inside. Single-click it
-and it expands into a floating **liquid-glass** panel; click any app to launch it.
+and it expands into a floating **glass** panel; click any app to launch it.
 
 <p align="center">
-  <img src="docs/manager.png" alt="The Liquid Folders manager" width="900">
+  <img src="docs/manager.png" alt="The Glass Folders manager" width="900">
 </p>
 
 ## Features
@@ -33,9 +33,9 @@ and it expands into a floating **liquid-glass** panel; click any app to launch i
 
 ## Install
 
-1. Download **`LiquidFolders.exe`** from the [latest Release](../../releases/latest).
+1. Download **`GlassFolders.exe`** from the [latest Release](../../releases/latest).
 2. Run it. It’s a single self-contained file — **no .NET install required** on Windows 10/11 (x64).
-3. Open the manager (the **Liquid Folders** desktop shortcut, or the tray icon) and create a folder.
+3. Open the manager (the **Glass Folders** desktop shortcut, or the tray icon) and create a folder.
 
 > Tip: put the `.exe` somewhere permanent (e.g. a folder in your user directory) before creating
 > folders, so your desktop folder icons keep pointing at it.
