@@ -324,7 +324,7 @@
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="Frostiness" VerticalAlignment="Center"
+                                    <TextBlock Grid.Column="0" Text="Blur" VerticalAlignment="Center"
                                                FontWeight="SemiBold" Foreground="{DynamicResource Fg}" Margin="0,0,14,0"/>
                                     <Slider x:Name="FrostSlider" Grid.Column="1" Minimum="0" Maximum="100"
                                             IsSnapToTickEnabled="True" TickFrequency="1"
