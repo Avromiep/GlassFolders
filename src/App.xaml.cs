@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.2.8";
+    public const string AppVersion = "0.2.9";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -416,14 +416,35 @@ public partial class App : Application
     {
         try
         {
-            // Point the launcher at the exe's OWN embedded icon (index 0) so it always matches the
-            // tray and taskbar — one source of truth. It used to reference a separately generated
-            // Icons\app.ico that was created once and never refreshed, so it could still show the
-            // old gear from before the snowflake redesign. Changing the icon location also makes
-            // Explorer re-read it, dropping the stale cached icon.
-            var exe = Environment.ProcessPath ?? System.IO.Path.Combine(AppContext.BaseDirectory, "GlassFolders.exe");
-            DesktopIntegration.PublishManagerShortcut(AppName, exe);
-            try { File.Delete(System.IO.Path.Combine(_store.IconsPath, "app.ico")); } catch { } // remove the stale gear
+            // Extract the current embedded app icon to a VERSION-STAMPED file and point the launcher
+            // there. Pointing at the exe (a path that never changes) let Explorer keep showing a
+            // stale cached icon after the art changed; a new icon-location path each version forces
+            // Explorer to re-read it. The bytes come from the embedded /Assets/app.ico, so it can't
+            // go stale.
+            var fallbackExe = Environment.ProcessPath ?? System.IO.Path.Combine(AppContext.BaseDirectory, "GlassFolders.exe");
+            string launcherIcon = fallbackExe;
+            try
+            {
+                System.IO.Directory.CreateDirectory(_store.IconsPath);
+                var versioned = System.IO.Path.Combine(_store.IconsPath, $"app-{AppVersion}.ico");
+                if (!File.Exists(versioned))
+                {
+                    var res = GetResourceStream(new Uri("/Assets/app.ico", UriKind.Relative));
+                    if (res != null)
+                    {
+                        using var fs = File.Create(versioned);
+                        res.Stream.CopyTo(fs);
+                        res.Stream.Dispose();
+                    }
+                }
+                if (File.Exists(versioned)) launcherIcon = versioned;
+                // Drop older icon files (the stale gear "app.ico" and previous versions).
+                foreach (var old in System.IO.Directory.EnumerateFiles(_store.IconsPath, "app*.ico"))
+                    if (!string.Equals(old, launcherIcon, StringComparison.OrdinalIgnoreCase))
+                        try { File.Delete(old); } catch { }
+            }
+            catch { }
+            DesktopIntegration.PublishManagerShortcut(AppName, launcherIcon);
 
             // Remove the pre-rename launcher ("Liquid Folders.lnk") if it's still on the desktop.
             try
