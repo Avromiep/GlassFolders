@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.2.6";
+    public const string AppVersion = "0.2.7";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -416,10 +416,14 @@ public partial class App : Application
     {
         try
         {
-            var icoPath = System.IO.Path.Combine(_store.IconsPath, "app.ico");
-            if (!File.Exists(icoPath))
-                IconComposer.BuildAppIcon(icoPath);
-            DesktopIntegration.PublishManagerShortcut(AppName, icoPath);
+            // Point the launcher at the exe's OWN embedded icon (index 0) so it always matches the
+            // tray and taskbar — one source of truth. It used to reference a separately generated
+            // Icons\app.ico that was created once and never refreshed, so it could still show the
+            // old gear from before the snowflake redesign. Changing the icon location also makes
+            // Explorer re-read it, dropping the stale cached icon.
+            var exe = Environment.ProcessPath ?? System.IO.Path.Combine(AppContext.BaseDirectory, "GlassFolders.exe");
+            DesktopIntegration.PublishManagerShortcut(AppName, exe);
+            try { File.Delete(System.IO.Path.Combine(_store.IconsPath, "app.ico")); } catch { } // remove the stale gear
 
             // Remove the pre-rename launcher ("Liquid Folders.lnk") if it's still on the desktop.
             try
