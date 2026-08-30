@@ -339,7 +339,7 @@ public partial class ExpandedPanelWindow : Window
             // Capture a padded region AROUND the panel so the blur near the panel's edges has
             // real neighbours to mix with — otherwise the edges look less frosted than the
             // centre (a blur has fewer samples at an image edge). Then crop back to the panel.
-            int pad = (int)Math.Round(45 * sx);
+            int pad = (int)Math.Round(70 * sx);
             int cx = (int)topLeft.X - pad, cy = (int)topLeft.Y - pad;
             int cw = w + pad * 2, ch = h + pad * 2;
 
@@ -395,8 +395,8 @@ public partial class ExpandedPanelWindow : Window
             var next = new System.Drawing.Bitmap(nw, nh);
             using (var g = System.Drawing.Graphics.FromImage(next))
             {
-                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
-                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
                 g.DrawImage(cur, 0, 0, nw, nh);
             }
             if (ownCur) cur.Dispose();
@@ -409,8 +409,8 @@ public partial class ExpandedPanelWindow : Window
         var small = new System.Drawing.Bitmap(fw, fh);
         using (var g = System.Drawing.Graphics.FromImage(small))
         {
-            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
-            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
             g.DrawImage(cur, 0, 0, fw, fh);
         }
         if (ownCur) cur.Dispose();
@@ -418,8 +418,8 @@ public partial class ExpandedPanelWindow : Window
         var big = new System.Drawing.Bitmap(srcBmp.Width, srcBmp.Height);
         using (var gg = System.Drawing.Graphics.FromImage(big))
         {
-            gg.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
-            gg.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+            gg.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
+            gg.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
             gg.DrawImage(small, new System.Drawing.Rectangle(0, 0, big.Width, big.Height));
         }
         small.Dispose();
