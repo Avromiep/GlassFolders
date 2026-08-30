@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.2.4";
+    public const string AppVersion = "0.2.5";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -136,8 +136,9 @@ public partial class App : Application
         _store = new FolderStore();
         _single.StartServer(OnIpcMessage);
         SetupTray();
-        RegenerateAllIcons();   // refresh closed icons (e.g. after an extractor fix)
+        MaybeRegenerateIcons(); // only after an update — avoids the desktop "flash" on every login
         EnsureManagerShortcut(); // desktop launcher that opens the manager/settings window
+        StartupManager.ApplyDefault(); // run at sign-in so the tray app is always there (single-click works)
         PrewarmIcons();          // warm the tile-icon cache so the first open is snappy too
         CheckForUpdatesInBackground(); // passive check → tray balloon if a newer version exists
 
@@ -469,6 +470,26 @@ public partial class App : Application
             }
             catch { }
         });
+    }
+
+    /// <summary>
+    /// Regenerate desktop icons only when the app version changed since the last run (i.e. right
+    /// after an update, where an extractor/compositor fix might need to take effect). On ordinary
+    /// logins this is skipped, so re-publishing shortcuts doesn't flash the desktop icons.
+    /// </summary>
+    private void MaybeRegenerateIcons()
+    {
+        try
+        {
+            var marker = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "GlassFolders", "last-version");
+            var last = File.Exists(marker) ? File.ReadAllText(marker).Trim() : "";
+            if (last == AppVersion) return;             // same version -> icons are already current
+            RegenerateAllIcons();
+            try { File.WriteAllText(marker, AppVersion); } catch { }
+        }
+        catch { RegenerateAllIcons(); }
     }
 
     /// <summary>Rebuilds every folder's composite icon so desktop icons stay in sync.</summary>

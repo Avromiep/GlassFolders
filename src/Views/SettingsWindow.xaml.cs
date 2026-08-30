@@ -12,6 +12,7 @@ public partial class SettingsWindow : Window
     private readonly Action _onFoldersChanged;
     private string? _downloadUrl;
     private string? _setupUrl;
+    private bool _loaded;
 
     public SettingsWindow(FolderStore store, Action onFoldersChanged)
     {
@@ -21,6 +22,14 @@ public partial class SettingsWindow : Window
         ApplyTheme(Theming.IsDark());
         SourceInitialized += (_, _) => Theming.ApplyGlass(this, Theming.IsDark());
         VersionText.Text = $"Version {App.AppVersion}";
+        StartupCheck.IsChecked = StartupManager.IsEnabled;
+        _loaded = true;
+    }
+
+    private void Startup_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded) return;
+        StartupManager.SetEnabled(StartupCheck.IsChecked == true);
     }
 
     private void ApplyTheme(bool dark)

@@ -109,6 +109,20 @@
                 </StackPanel>
             </Border>
 
+            <!-- General -->
+            <Border Style="{StaticResource Section}">
+                <StackPanel>
+                    <TextBlock Text="General" FontWeight="SemiBold" Foreground="{DynamicResource Fg}"
+                               Margin="0,0,0,10"/>
+                    <CheckBox x:Name="StartupCheck" Foreground="{DynamicResource Fg}" FontSize="13"
+                              Content="Start Glass Folders when I sign in to Windows"
+                              Checked="Startup_Changed" Unchecked="Startup_Changed"/>
+                    <TextBlock Foreground="{DynamicResource FgDim}" FontSize="12.5" TextWrapping="Wrap"
+                               Margin="24,6,0,0"
+                               Text="Keeps it running in the background so a single click always opens your folders. Recommended — without it, the app stops running after a restart until you launch it again."/>
+                </StackPanel>
+            </Border>
+
             <!-- Updates -->
             <Border Style="{StaticResource Section}">
                 <StackPanel>
@@ -150,11 +164,11 @@
                     <TextBlock Text="Diagnostics" FontWeight="SemiBold" Foreground="{DynamicResource Fg}"
                                Margin="0,0,0,4"/>
                     <TextBlock Foreground="{DynamicResource FgDim}" FontSize="12.5" TextWrapping="Wrap"
-                               Text="If a folder isn't opening reliably, reproduce it a few times, then save the log and send it over. It's saved to a dedicated logs folder."
+                               Text="Glass Folders keeps a small activity log to help track down problems. If a folder isn't opening reliably, reproduce it a few times, then click Save logs and send me the file.&#x0a;&#x0a;• Save logs — writes a copy of the current log into your logs folder and opens it, ready to attach.&#x0a;• Open log folder — just opens that folder without saving a new copy."
                                Margin="0,0,0,12"/>
                     <StackPanel Orientation="Horizontal">
                         <Button x:Name="SaveLogButton" Style="{StaticResource Ghost}"
-                                Content="Save a copy of the log" Click="SaveLog_Click"/>
+                                Content="Save logs" Click="SaveLog_Click"/>
                         <Button x:Name="OpenLogButton" Style="{StaticResource Ghost}" Margin="10,0,0,0"
                                 Content="Open log folder" Click="OpenLog_Click"/>
                     </StackPanel>
