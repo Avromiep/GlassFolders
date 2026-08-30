@@ -81,14 +81,15 @@ public static class DesktopIntegration
         RefreshIcon(lnkPath);
     }
 
-    /// <summary>Tell the shell a specific item changed, then flush the association cache.</summary>
+    /// <summary>Tell the shell that this specific item changed so Explorer repaints just its icon.
+    /// We deliberately do NOT fire the global SHCNE_ASSOCCHANGED here — that repaints every icon on
+    /// the desktop (the jarring "flash" on startup when several folders refresh at once).</summary>
     public static void RefreshIcon(string path)
     {
         IntPtr p = Marshal.StringToHGlobalUni(path);
         try
         {
             SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW | SHCNF_FLUSH, p, IntPtr.Zero);
-            SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST | SHCNF_FLUSH, IntPtr.Zero, IntPtr.Zero);
         }
         finally
         {

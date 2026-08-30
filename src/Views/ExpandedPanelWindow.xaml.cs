@@ -38,6 +38,9 @@ public partial class ExpandedPanelWindow : Window
         ItemsGrid.PreviewMouseLeftButtonDown += ItemsGrid_PreviewMouseLeftButtonDown;
         ItemsGrid.PreviewMouseMove += ItemsGrid_PreviewMouseMove;
 
+        // Regaining focus cancels a pending debounced close (the transient blip passed).
+        Activated += (_, _) => _deactivateTimer?.Stop();
+
         Loaded += OnLoaded;
     }
 
@@ -312,12 +315,7 @@ public partial class ExpandedPanelWindow : Window
         // Grace period: ignore any Deactivated that fires right as we open (the race that made
         // folders "open and vanish"). After this, focus-loss also closes it, as a complement to
         // the click-outside close.
-        var arm = new System.Windows.Threading.DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(450),
-        };
-        arm.Tick += (_, _) => { arm.Stop(); _closeArmed = true; };
-        arm.Start();
+        ArmCloseAfter(450);
 
         Services.Diag.Log($"panel '{_folder.Name}' loaded pos=({Left:0},{Top:0}) size={ActualWidth:0}x{ActualHeight:0} IsActive={IsActive} Topmost={Topmost}");
     }
@@ -644,11 +642,56 @@ public partial class ExpandedPanelWindow : Window
     /// <summary>Test/screenshot mode: keep the panel open when it loses focus.</summary>
     public bool SuppressAutoClose { get; set; }
 
+    private System.Windows.Threading.DispatcherTimer? _armTimer;
+    private System.Windows.Threading.DispatcherTimer? _deactivateTimer;
+
+    /// <summary>(Re)start the opening grace period during which a Deactivated is ignored.</summary>
+    private void ArmCloseAfter(int ms)
+    {
+        _closeArmed = false;
+        _armTimer?.Stop();
+        _armTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ms) };
+        _armTimer.Tick += (_, _) => { _armTimer?.Stop(); _closeArmed = true; };
+        _armTimer.Start();
+    }
+
+    /// <summary>
+    /// The user tapped the folder again while it's open (e.g. a double-click, whose second click
+    /// launches a fresh instance that steals focus). Keep it open: cancel any pending close, extend
+    /// the grace period so the focus churn can't dismiss it, and bring it back to front.
+    /// </summary>
+    public void ReassertOpen()
+    {
+        _deactivateTimer?.Stop();
+        ArmCloseAfter(600);
+        try
+        {
+            Activate();
+            Focus();
+            var h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            NativeMethods.BringWindowToTop(h);
+            NativeMethods.SetForegroundWindow(h);
+        }
+        catch { }
+    }
+
     private void Window_Deactivated(object? sender, EventArgs e)
     {
         Services.Diag.Log($"panel '{_folder.Name}' Deactivated armed={_closeArmed} suppress={SuppressAutoClose} closing={_closing}");
-        // Don't self-close during the opening grace period (avoids the "opens and vanishes" race).
-        if (!SuppressAutoClose && _closeArmed) SafeClose();
+        if (SuppressAutoClose || !_closeArmed || _closing) return;
+
+        // Debounce: a transient focus blip — launching a second instance from a double-click, a
+        // toast/notification, a background window flashing up — shouldn't dismiss the folder. Only
+        // close if we're still not the active window a beat later. A genuine app-switch stays gone;
+        // clicking elsewhere is handled separately by the click-outside watcher.
+        _deactivateTimer?.Stop();
+        _deactivateTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(320) };
+        _deactivateTimer.Tick += (_, _) =>
+        {
+            _deactivateTimer?.Stop();
+            if (!IsActive && !SuppressAutoClose && !_closing) SafeClose();
+        };
+        _deactivateTimer.Start();
     }
 
     private bool _closing;
