@@ -354,27 +354,30 @@ public partial class ExpandedPanelWindow : Window
         Services.Diag.Log($"panel '{_folder.Name}' open-prep render={tRender}ms capture={tCapture}ms total={sw.ElapsedMilliseconds}ms");
 
         // Reuse path captured while hidden — reveal now that the correct frosted background is set.
+        // Keep Opacity at 0 for the reveal, and start the fade only AFTER the window has painted one
+        // transparent frame. A layered (AllowsTransparency) window otherwise briefly presents its
+        // content at full opacity on the first frame after Show() — the "flash" on open. Deferring
+        // the fade to Render priority guarantees the transparent frame goes out first.
         if (!IsVisible) Show();
 
-        PlayOpenAnimation();
-
-        // Best-effort bring-to-front (no AttachThreadInput — that couples our input queue with
-        // Explorer's and leaves the desktop's focus/redraw glitched, needing an icon "flash" to
-        // recover). The panel is Topmost so it's visible regardless; closing is handled by the
-        // click-watcher detecting a click outside it, so we don't depend on true foreground.
-        Activate();
-        Focus();
-        try { NativeMethods.BringWindowToTop(new System.Windows.Interop.WindowInteropHelper(this).Handle); }
-        catch { }
-        try { NativeMethods.SetForegroundWindow(new System.Windows.Interop.WindowInteropHelper(this).Handle); }
-        catch { }
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Render, new Action(RevealAndAnimate));
 
         // Grace period: ignore any Deactivated that fires right as we open (the race that made
         // folders "open and vanish"). After this, focus-loss also closes it, as a complement to
         // the click-outside close.
         ArmCloseAfter(450);
+    }
 
-        Services.Diag.Log($"panel '{_folder.Name}' loaded pos=({Left:0},{Top:0}) size={ActualWidth:0}x{ActualHeight:0} IsActive={IsActive} Topmost={Topmost}");
+    /// <summary>Starts the fade/scale and brings the panel to the front — run at Render priority so
+    /// the window paints one transparent frame first (no full-opacity "flash" on reveal).</summary>
+    private void RevealAndAnimate()
+    {
+        PlayOpenAnimation();
+        Activate();
+        Focus();
+        try { NativeMethods.BringWindowToTop(new System.Windows.Interop.WindowInteropHelper(this).Handle); } catch { }
+        try { NativeMethods.SetForegroundWindow(new System.Windows.Interop.WindowInteropHelper(this).Handle); } catch { }
+        Services.Diag.Log($"panel '{_folder.Name}' revealed pos=({Left:0},{Top:0}) size={ActualWidth:0}x{ActualHeight:0}");
     }
 
     /// <summary>
@@ -524,7 +527,9 @@ public partial class ExpandedPanelWindow : Window
         // finish together (a mismatch made the panel look like it "opened twice" — appearing, then
         // still growing a beat later).
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        var dur = TimeSpan.FromMilliseconds(90);
+        // Duration is tunable via GF_ANIM_MS for slow-motion diagnosis; defaults to 90ms.
+        int ms = int.TryParse(Environment.GetEnvironmentVariable("GF_ANIM_MS"), out var m) && m > 0 ? m : 90;
+        var dur = TimeSpan.FromMilliseconds(ms);
         var scale = new DoubleAnimation(0.97, 1.0, dur) { EasingFunction = ease };
         OpenScale.CenterX = ActualWidth / 2;
         OpenScale.CenterY = ActualHeight / 2;
