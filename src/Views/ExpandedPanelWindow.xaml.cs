@@ -66,8 +66,18 @@ public partial class ExpandedPanelWindow : Window
         TitleText.Text = folder.Name;
         ApplyFrostiness(folder.Frostiness);
 
+        // Release the fade animation held from the previous open. Without this, Opacity stays
+        // pinned at 1.0 by the finished animation, so (a) the wallpaper capture grabs our own
+        // opaque frosted pixels instead of the wallpaper ("too white"), and (b) Show() reveals the
+        // stale content before the new fade runs ("double open"). Clearing it makes Opacity=0 real.
+        BeginAnimation(OpacityProperty, null);
+        OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         Opacity = 0;              // stay transparent so the capture behind us is clean
-        if (!IsVisible) Show();   // first time creates the HWND; after Hide() this just re-shows it
+        // If we're reopening from a still-visible state, hide first so no opaque frame of the old
+        // content leaks into the wallpaper capture; then re-show at Opacity 0 (transparent).
+        if (IsVisible) Hide();
+        Show();                   // first time creates the HWND; otherwise re-reveals transparent
         PlayOpen();
     }
 
