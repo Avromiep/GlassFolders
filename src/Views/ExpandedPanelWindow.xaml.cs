@@ -66,28 +66,28 @@ public partial class ExpandedPanelWindow : Window
         TitleText.Text = folder.Name;
         ApplyFrostiness(folder.Frostiness);
 
-        // Release the fade animation held from the previous open. Without this, Opacity stays
-        // pinned at 1.0 by the finished animation, so (a) the wallpaper capture grabs our own
-        // opaque frosted pixels instead of the wallpaper ("too white"), and (b) Show() reveals the
-        // stale content before the new fade runs ("double open"). Clearing it makes Opacity=0 real.
+        // Release the fade animation held from the previous open, so Opacity=0 truly takes effect
+        // (a finished animation otherwise pins it at 1.0).
         BeginAnimation(OpacityProperty, null);
         OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
         OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         Opacity = 0;
 
-        // First open must Show() to create the HWND (nothing was on screen, so the capture is
-        // clean). On reuse the window is already realized: keep it HIDDEN through render+capture so
-        // the wallpaper grab can't pick up the previous panel's pixels (DWM composites Hide/Opacity
-        // asynchronously, so a synchronous capture right after Show would still see stale pixels —
-        // the "washed-out blur"). PlayOpen reveals it once the correct background is set.
-        if (!_realized) { _realized = true; Show(); }
-        else if (IsVisible) Hide();
+        // The window is created ONCE and then kept shown but parked OFF-SCREEN when "closed" (see
+        // HidePanel), never hidden/re-shown. That's the key to a flicker-free open: a layered
+        // (AllowsTransparency) window paints one opaque frame the instant it's Show()n, which is the
+        // flash. By never re-showing — just moving it back on-screen while transparent and fading in
+        // — there's no reveal frame to flash. First-ever open realizes it off-screen at Opacity 0.
+        if (!_realized) { _realized = true; Left = OffscreenX; Top = 0; Show(); }
         PlayOpen();
     }
 
     private bool _realized;
 
-    /// <summary>Hides (does not destroy) the reused window so the next open is instant.</summary>
+    private const double OffscreenX = -32000; // park position when "closed" (off all monitors)
+
+    /// <summary>"Closes" the reused window by parking it off-screen at Opacity 0 — it stays shown so
+    /// the next open never calls Show() (which is what flashes). Off-screen it can't intercept clicks.</summary>
     public void HidePanel()
     {
         if (_hidden) return;
@@ -95,7 +95,13 @@ public partial class ExpandedPanelWindow : Window
         _deactivateTimer?.Stop();
         _armTimer?.Stop();
         _closeArmed = false;
-        try { Opacity = 0; Hide(); } catch { }
+        try
+        {
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 0;
+            Left = OffscreenX;
+        }
+        catch { }
     }
 
     // ---- Drag an app OUT of the folder to remove it (drop it outside the glass) ----
@@ -353,13 +359,9 @@ public partial class ExpandedPanelWindow : Window
         long tCapture = sw.ElapsedMilliseconds - tRender;
         Services.Diag.Log($"panel '{_folder.Name}' open-prep render={tRender}ms capture={tCapture}ms total={sw.ElapsedMilliseconds}ms");
 
-        // Reuse path captured while hidden — reveal now that the correct frosted background is set.
-        // Keep Opacity at 0 for the reveal, and start the fade only AFTER the window has painted one
-        // transparent frame. A layered (AllowsTransparency) window otherwise briefly presents its
-        // content at full opacity on the first frame after Show() — the "flash" on open. Deferring
-        // the fade to Render priority guarantees the transparent frame goes out first.
-        if (!IsVisible) Show();
-
+        // The window is already shown (parked off-screen at Opacity 0); PositionNearCursor above
+        // moved it on-screen while still transparent, and the frosted background is now set. Just
+        // fade it in — no Show(), so there's no layered-window reveal frame that could flash.
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Render, new Action(RevealAndAnimate));
 
         // Grace period: ignore any Deactivated that fires right as we open (the race that made

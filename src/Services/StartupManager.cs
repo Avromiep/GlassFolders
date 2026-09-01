@@ -53,7 +53,8 @@ public static class StartupManager
             if (string.IsNullOrEmpty(exe)) return;
             using var k = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true)
                           ?? Registry.CurrentUser.CreateSubKey(RunKeyPath);
-            k?.SetValue(ValueName, "\"" + exe + "\"");
+            // --startup => start silently to the tray (don't pop the manager window on every login).
+            k?.SetValue(ValueName, "\"" + exe + "\" --startup");
         }
         catch { }
     }

@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.5";
+    public const string AppVersion = "0.3.6";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -153,7 +153,11 @@ public partial class App : Application
             onClick: (x, y) => Dispatcher.BeginInvoke(() => CloseIfOutside(x, y)));
         _clickWatcher.Install();
 
-        Dispatch(openName, filesToAdd);
+        // Auto-start (Run key) passes --startup: begin silently in the tray. Only pop the manager
+        // for an ordinary launch (the desktop "Glass Folders" shortcut) or a folder/file request.
+        bool startup = e.Args.Any(a => a.Equals("--startup", StringComparison.OrdinalIgnoreCase));
+        if (!startup || openName != null || filesToAdd.Count > 0)
+            Dispatch(openName, filesToAdd);
     }
 
     /// <summary>
