@@ -73,13 +73,19 @@ public partial class ExpandedPanelWindow : Window
         BeginAnimation(OpacityProperty, null);
         OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
         OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-        Opacity = 0;              // stay transparent so the capture behind us is clean
-        // If we're reopening from a still-visible state, hide first so no opaque frame of the old
-        // content leaks into the wallpaper capture; then re-show at Opacity 0 (transparent).
-        if (IsVisible) Hide();
-        Show();                   // first time creates the HWND; otherwise re-reveals transparent
+        Opacity = 0;
+
+        // First open must Show() to create the HWND (nothing was on screen, so the capture is
+        // clean). On reuse the window is already realized: keep it HIDDEN through render+capture so
+        // the wallpaper grab can't pick up the previous panel's pixels (DWM composites Hide/Opacity
+        // asynchronously, so a synchronous capture right after Show would still see stale pixels —
+        // the "washed-out blur"). PlayOpen reveals it once the correct background is set.
+        if (!_realized) { _realized = true; Show(); }
+        else if (IsVisible) Hide();
         PlayOpen();
     }
+
+    private bool _realized;
 
     /// <summary>Hides (does not destroy) the reused window so the next open is instant.</summary>
     public void HidePanel()
@@ -347,6 +353,9 @@ public partial class ExpandedPanelWindow : Window
         long tCapture = sw.ElapsedMilliseconds - tRender;
         Services.Diag.Log($"panel '{_folder.Name}' open-prep render={tRender}ms capture={tCapture}ms total={sw.ElapsedMilliseconds}ms");
 
+        // Reuse path captured while hidden — reveal now that the correct frosted background is set.
+        if (!IsVisible) Show();
+
         PlayOpenAnimation();
 
         // Best-effort bring-to-front (no AttachThreadInput — that couples our input queue with
@@ -511,14 +520,18 @@ public partial class ExpandedPanelWindow : Window
 
     private void PlayOpenAnimation()
     {
+        // One smooth motion: fade and scale share the same duration/easing so they start and
+        // finish together (a mismatch made the panel look like it "opened twice" — appearing, then
+        // still growing a beat later).
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        var scale = new DoubleAnimation(0.95, 1.0, TimeSpan.FromMilliseconds(80)) { EasingFunction = ease };
+        var dur = TimeSpan.FromMilliseconds(90);
+        var scale = new DoubleAnimation(0.97, 1.0, dur) { EasingFunction = ease };
         OpenScale.CenterX = ActualWidth / 2;
         OpenScale.CenterY = ActualHeight / 2;
         OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, scale);
         OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, scale);
         // Fade the whole (layered) window in from the transparent state used during capture.
-        BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(55)));
+        BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, dur) { EasingFunction = ease });
     }
 
     // ---- Paging ----
