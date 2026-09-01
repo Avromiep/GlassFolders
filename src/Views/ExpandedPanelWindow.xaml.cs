@@ -12,7 +12,7 @@ namespace GlassFolders.Views;
 public partial class ExpandedPanelWindow : Window
 {
     private readonly FolderStore _store;
-    private FolderModel _folder = null!; // set by OpenFor before any use
+    private FolderModel _folder;
     private int _pageIndex;
     private int _blurFactor = 11;
     private bool _closeArmed;
@@ -24,84 +24,24 @@ public partial class ExpandedPanelWindow : Window
     private static readonly Brush DotActive = new SolidColorBrush(Color.FromArgb(0xDD, 0x20, 0x24, 0x28));
     private static readonly Brush DotInactive = new SolidColorBrush(Color.FromArgb(0x55, 0x20, 0x24, 0x28));
 
-    // A single instance of this window is created once and REUSED for every folder open (via
-    // OpenFor / HidePanel). Creating a layered transparent window and doing its first render costs
-    // ~400ms (more when cold), so rebuilding it per open was the bulk of the open delay. Reusing one
-    // window pays that once; later opens just re-render content into it. Memory stays flat — it's a
-    // single window, not a growing cache.
-    public ExpandedPanelWindow(FolderStore store)
+    public ExpandedPanelWindow(FolderStore store, FolderModel folder)
     {
         _store = store;
+        _folder = folder;
         InitializeComponent();
 
         DotActive.Freeze();
         DotInactive.Freeze();
+        TitleText.Text = folder.Name;
+        ApplyFrostiness(folder.Frostiness);
 
         ItemsGrid.PreviewMouseLeftButtonDown += ItemsGrid_PreviewMouseLeftButtonDown;
         ItemsGrid.PreviewMouseMove += ItemsGrid_PreviewMouseMove;
 
         // Regaining focus cancels a pending debounced close (the transient blip passed).
         Activated += (_, _) => _deactivateTimer?.Stop();
-    }
 
-    private bool _hidden = true;
-
-    /// <summary>The folder currently shown (null before the first open).</summary>
-    public FolderModel? CurrentFolder => _folder;
-
-    /// <summary>True while the panel is actually on screen.</summary>
-    public bool IsShown => !_hidden && IsVisible;
-
-    /// <summary>(Re)opens the reused window for a folder: reset state, position, capture, animate in.</summary>
-    public void OpenFor(FolderModel folder, System.Drawing.Point? anchor)
-    {
-        _folder = folder;
-        _pageIndex = 0;
-        AnchorPoint = anchor;
-        _hidden = false;
-        _closing = false;
-        _deactivateTimer?.Stop();
-        _dragOutActive = false; _dragOutItem = null; _dragOutButton = null;
-
-        TitleText.Text = folder.Name;
-        ApplyFrostiness(folder.Frostiness);
-
-        // Release the fade animation held from the previous open, so Opacity=0 truly takes effect
-        // (a finished animation otherwise pins it at 1.0).
-        BeginAnimation(OpacityProperty, null);
-        OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-        OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-        Opacity = 0;
-
-        // The window is created ONCE and then kept shown but parked OFF-SCREEN when "closed" (see
-        // HidePanel), never hidden/re-shown. That's the key to a flicker-free open: a layered
-        // (AllowsTransparency) window paints one opaque frame the instant it's Show()n, which is the
-        // flash. By never re-showing — just moving it back on-screen while transparent and fading in
-        // — there's no reveal frame to flash. First-ever open realizes it off-screen at Opacity 0.
-        if (!_realized) { _realized = true; Left = OffscreenX; Top = 0; Show(); }
-        PlayOpen();
-    }
-
-    private bool _realized;
-
-    private const double OffscreenX = -32000; // park position when "closed" (off all monitors)
-
-    /// <summary>"Closes" the reused window by parking it off-screen at Opacity 0 — it stays shown so
-    /// the next open never calls Show() (which is what flashes). Off-screen it can't intercept clicks.</summary>
-    public void HidePanel()
-    {
-        if (_hidden) return;
-        _hidden = true;
-        _deactivateTimer?.Stop();
-        _armTimer?.Stop();
-        _closeArmed = false;
-        try
-        {
-            BeginAnimation(OpacityProperty, null);
-            Opacity = 0;
-            Left = OffscreenX;
-        }
-        catch { }
+        Loaded += OnLoaded;
     }
 
     // ---- Drag an app OUT of the folder to remove it (drop it outside the glass) ----
@@ -342,7 +282,7 @@ public partial class ExpandedPanelWindow : Window
         _blurFactor = (int)Math.Round(blur);
     }
 
-    private void PlayOpen()
+    private void OnLoaded(object? sender, RoutedEventArgs e)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         RenderPage();
@@ -359,27 +299,25 @@ public partial class ExpandedPanelWindow : Window
         long tCapture = sw.ElapsedMilliseconds - tRender;
         Services.Diag.Log($"panel '{_folder.Name}' open-prep render={tRender}ms capture={tCapture}ms total={sw.ElapsedMilliseconds}ms");
 
-        // The window is already shown (parked off-screen at Opacity 0); PositionNearCursor above
-        // moved it on-screen while still transparent, and the frosted background is now set. Just
-        // fade it in — no Show(), so there's no layered-window reveal frame that could flash.
-        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Render, new Action(RevealAndAnimate));
+        PlayOpenAnimation();
+
+        // Best-effort bring-to-front (no AttachThreadInput — that couples our input queue with
+        // Explorer's and leaves the desktop's focus/redraw glitched, needing an icon "flash" to
+        // recover). The panel is Topmost so it's visible regardless; closing is handled by the
+        // click-watcher detecting a click outside it, so we don't depend on true foreground.
+        Activate();
+        Focus();
+        try { NativeMethods.BringWindowToTop(new System.Windows.Interop.WindowInteropHelper(this).Handle); }
+        catch { }
+        try { NativeMethods.SetForegroundWindow(new System.Windows.Interop.WindowInteropHelper(this).Handle); }
+        catch { }
 
         // Grace period: ignore any Deactivated that fires right as we open (the race that made
         // folders "open and vanish"). After this, focus-loss also closes it, as a complement to
         // the click-outside close.
         ArmCloseAfter(450);
-    }
 
-    /// <summary>Starts the fade/scale and brings the panel to the front — run at Render priority so
-    /// the window paints one transparent frame first (no full-opacity "flash" on reveal).</summary>
-    private void RevealAndAnimate()
-    {
-        PlayOpenAnimation();
-        Activate();
-        Focus();
-        try { NativeMethods.BringWindowToTop(new System.Windows.Interop.WindowInteropHelper(this).Handle); } catch { }
-        try { NativeMethods.SetForegroundWindow(new System.Windows.Interop.WindowInteropHelper(this).Handle); } catch { }
-        Services.Diag.Log($"panel '{_folder.Name}' revealed pos=({Left:0},{Top:0}) size={ActualWidth:0}x{ActualHeight:0}");
+        Services.Diag.Log($"panel '{_folder.Name}' loaded pos=({Left:0},{Top:0}) size={ActualWidth:0}x{ActualHeight:0} IsActive={IsActive} Topmost={Topmost}");
     }
 
     /// <summary>
@@ -525,20 +463,14 @@ public partial class ExpandedPanelWindow : Window
 
     private void PlayOpenAnimation()
     {
-        // One smooth motion: fade and scale share the same duration/easing so they start and
-        // finish together (a mismatch made the panel look like it "opened twice" — appearing, then
-        // still growing a beat later).
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        // Duration is tunable via GF_ANIM_MS for slow-motion diagnosis; defaults to 90ms.
-        int ms = int.TryParse(Environment.GetEnvironmentVariable("GF_ANIM_MS"), out var m) && m > 0 ? m : 90;
-        var dur = TimeSpan.FromMilliseconds(ms);
-        var scale = new DoubleAnimation(0.97, 1.0, dur) { EasingFunction = ease };
+        var scale = new DoubleAnimation(0.95, 1.0, TimeSpan.FromMilliseconds(80)) { EasingFunction = ease };
         OpenScale.CenterX = ActualWidth / 2;
         OpenScale.CenterY = ActualHeight / 2;
         OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, scale);
         OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, scale);
         // Fade the whole (layered) window in from the transparent state used during capture.
-        BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, dur) { EasingFunction = ease });
+        BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(55)));
     }
 
     // ---- Paging ----
@@ -636,7 +568,7 @@ public partial class ExpandedPanelWindow : Window
     {
         switch (e.Key)
         {
-            case Key.Escape: HidePanel(); break;
+            case Key.Escape: SafeClose(); break;
             case Key.Left: ChangePage(-1); break;
             case Key.Right: ChangePage(+1); break;
         }
@@ -692,7 +624,7 @@ public partial class ExpandedPanelWindow : Window
         {
             Services.Diag.Log($"panel launch '{item.DisplayName}' -> {item.LnkPath}");
             Process.Start(new ProcessStartInfo(item.LnkPath) { UseShellExecute = true });
-            HidePanel();
+            SafeClose();
         }
         catch (Exception ex)
         {
@@ -766,8 +698,8 @@ public partial class ExpandedPanelWindow : Window
 
     private void Window_Deactivated(object? sender, EventArgs e)
     {
-        Services.Diag.Log($"panel '{_folder.Name}' Deactivated armed={_closeArmed} suppress={SuppressAutoClose} hidden={_hidden}");
-        if (SuppressAutoClose || !_closeArmed || _hidden) return;
+        Services.Diag.Log($"panel '{_folder.Name}' Deactivated armed={_closeArmed} suppress={SuppressAutoClose} closing={_closing}");
+        if (SuppressAutoClose || !_closeArmed || _closing) return;
 
         // Debounce: a transient focus blip — launching a second instance from a double-click, a
         // toast/notification, a background window flashing up — shouldn't dismiss the folder. Only
@@ -778,7 +710,7 @@ public partial class ExpandedPanelWindow : Window
         _deactivateTimer.Tick += (_, _) =>
         {
             _deactivateTimer?.Stop();
-            if (!IsActive && !SuppressAutoClose && !_hidden) HidePanel();
+            if (!IsActive && !SuppressAutoClose && !_closing) SafeClose();
         };
         _deactivateTimer.Start();
     }
