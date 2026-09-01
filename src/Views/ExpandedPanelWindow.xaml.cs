@@ -12,7 +12,7 @@ namespace GlassFolders.Views;
 public partial class ExpandedPanelWindow : Window
 {
     private readonly FolderStore _store;
-    private FolderModel _folder;
+    private FolderModel _folder = null!; // set by OpenFor before any use
     private int _pageIndex;
     private int _blurFactor = 11;
     private bool _closeArmed;
@@ -24,24 +24,62 @@ public partial class ExpandedPanelWindow : Window
     private static readonly Brush DotActive = new SolidColorBrush(Color.FromArgb(0xDD, 0x20, 0x24, 0x28));
     private static readonly Brush DotInactive = new SolidColorBrush(Color.FromArgb(0x55, 0x20, 0x24, 0x28));
 
-    public ExpandedPanelWindow(FolderStore store, FolderModel folder)
+    // A single instance of this window is created once and REUSED for every folder open (via
+    // OpenFor / HidePanel). Creating a layered transparent window and doing its first render costs
+    // ~400ms (more when cold), so rebuilding it per open was the bulk of the open delay. Reusing one
+    // window pays that once; later opens just re-render content into it. Memory stays flat — it's a
+    // single window, not a growing cache.
+    public ExpandedPanelWindow(FolderStore store)
     {
         _store = store;
-        _folder = folder;
         InitializeComponent();
 
         DotActive.Freeze();
         DotInactive.Freeze();
-        TitleText.Text = folder.Name;
-        ApplyFrostiness(folder.Frostiness);
 
         ItemsGrid.PreviewMouseLeftButtonDown += ItemsGrid_PreviewMouseLeftButtonDown;
         ItemsGrid.PreviewMouseMove += ItemsGrid_PreviewMouseMove;
 
         // Regaining focus cancels a pending debounced close (the transient blip passed).
         Activated += (_, _) => _deactivateTimer?.Stop();
+    }
 
-        Loaded += OnLoaded;
+    private bool _hidden = true;
+
+    /// <summary>The folder currently shown (null before the first open).</summary>
+    public FolderModel? CurrentFolder => _folder;
+
+    /// <summary>True while the panel is actually on screen.</summary>
+    public bool IsShown => !_hidden && IsVisible;
+
+    /// <summary>(Re)opens the reused window for a folder: reset state, position, capture, animate in.</summary>
+    public void OpenFor(FolderModel folder, System.Drawing.Point? anchor)
+    {
+        _folder = folder;
+        _pageIndex = 0;
+        AnchorPoint = anchor;
+        _hidden = false;
+        _closing = false;
+        _deactivateTimer?.Stop();
+        _dragOutActive = false; _dragOutItem = null; _dragOutButton = null;
+
+        TitleText.Text = folder.Name;
+        ApplyFrostiness(folder.Frostiness);
+
+        Opacity = 0;              // stay transparent so the capture behind us is clean
+        if (!IsVisible) Show();   // first time creates the HWND; after Hide() this just re-shows it
+        PlayOpen();
+    }
+
+    /// <summary>Hides (does not destroy) the reused window so the next open is instant.</summary>
+    public void HidePanel()
+    {
+        if (_hidden) return;
+        _hidden = true;
+        _deactivateTimer?.Stop();
+        _armTimer?.Stop();
+        _closeArmed = false;
+        try { Opacity = 0; Hide(); } catch { }
     }
 
     // ---- Drag an app OUT of the folder to remove it (drop it outside the glass) ----
@@ -282,7 +320,7 @@ public partial class ExpandedPanelWindow : Window
         _blurFactor = (int)Math.Round(blur);
     }
 
-    private void OnLoaded(object? sender, RoutedEventArgs e)
+    private void PlayOpen()
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         RenderPage();
@@ -568,7 +606,7 @@ public partial class ExpandedPanelWindow : Window
     {
         switch (e.Key)
         {
-            case Key.Escape: SafeClose(); break;
+            case Key.Escape: HidePanel(); break;
             case Key.Left: ChangePage(-1); break;
             case Key.Right: ChangePage(+1); break;
         }
@@ -624,7 +662,7 @@ public partial class ExpandedPanelWindow : Window
         {
             Services.Diag.Log($"panel launch '{item.DisplayName}' -> {item.LnkPath}");
             Process.Start(new ProcessStartInfo(item.LnkPath) { UseShellExecute = true });
-            SafeClose();
+            HidePanel();
         }
         catch (Exception ex)
         {
@@ -698,8 +736,8 @@ public partial class ExpandedPanelWindow : Window
 
     private void Window_Deactivated(object? sender, EventArgs e)
     {
-        Services.Diag.Log($"panel '{_folder.Name}' Deactivated armed={_closeArmed} suppress={SuppressAutoClose} closing={_closing}");
-        if (SuppressAutoClose || !_closeArmed || _closing) return;
+        Services.Diag.Log($"panel '{_folder.Name}' Deactivated armed={_closeArmed} suppress={SuppressAutoClose} hidden={_hidden}");
+        if (SuppressAutoClose || !_closeArmed || _hidden) return;
 
         // Debounce: a transient focus blip — launching a second instance from a double-click, a
         // toast/notification, a background window flashing up — shouldn't dismiss the folder. Only
@@ -710,7 +748,7 @@ public partial class ExpandedPanelWindow : Window
         _deactivateTimer.Tick += (_, _) =>
         {
             _deactivateTimer?.Stop();
-            if (!IsActive && !SuppressAutoClose && !_closing) SafeClose();
+            if (!IsActive && !SuppressAutoClose && !_hidden) HidePanel();
         };
         _deactivateTimer.Start();
     }

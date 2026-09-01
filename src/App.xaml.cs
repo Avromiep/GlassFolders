@@ -10,14 +10,14 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.1";
+    public const string AppVersion = "0.3.2";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
     private WinForms.NotifyIcon? _tray;
     private ManagerWindow? _manager;
     private DesktopClickWatcher? _clickWatcher;
-    private readonly Dictionary<string, ExpandedPanelWindow> _openPanels = new(StringComparer.OrdinalIgnoreCase);
+    private ExpandedPanelWindow? _panel; // single reused panel window (created once, hidden between opens)
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -187,8 +187,8 @@ public partial class App : Application
         File.WriteAllText(outPng + ".count.log",
             $"demoApps={demoApps.Length} items={folder.Items.Count} pages={folder.PageCount}");
 
-        var win = new ExpandedPanelWindow(store, folder) { SuppressAutoClose = true };
-        win.Show();
+        var win = new ExpandedPanelWindow(store) { SuppressAutoClose = true };
+        win.OpenFor(folder, null);
 
         var timer = new System.Windows.Threading.DispatcherTimer
         {
@@ -316,9 +316,8 @@ public partial class App : Application
             System.Windows.Forms.Cursor.Position =
                 new System.Drawing.Point(pb.X + pb.Width / 2, pb.Y + pb.Height / 2);
 
-            var panel = new ExpandedPanelWindow(store, store.FindByName("Essentials")!)
-            { SuppressAutoClose = true };
-            panel.Show();
+            var panel = new ExpandedPanelWindow(store) { SuppressAutoClose = true };
+            panel.OpenFor(store.FindByName("Essentials")!, null);
             panel.Activate();
             await Task.Delay(1000);
             CaptureWindowClean(panel, Path.Combine(outDir, "panel.png"));
@@ -619,59 +618,45 @@ public partial class App : Application
         catch { }
     }
 
-    /// <summary>Closes any open panel whose window rectangle doesn't contain the click point.</summary>
+    /// <summary>Hides the reused panel when a click lands outside its window rectangle.</summary>
     private void CloseIfOutside(int x, int y)
     {
-        if (_openPanels.Count == 0) return;
-        foreach (var win in _openPanels.Values.ToList())
+        if (_panel is null || !_panel.IsShown) return;
+        try
         {
-            try
-            {
-                var hwnd = new System.Windows.Interop.WindowInteropHelper(win).Handle;
-                if (hwnd == IntPtr.Zero) continue;
-                NativeMethods.GetWindowRect(hwnd, out var r);
-                bool inside = x >= r.Left && x < r.Right && y >= r.Top && y < r.Bottom;
-                Diag.Log($"closeIfOutside ({x},{y}) rect=({r.Left},{r.Top},{r.Right},{r.Bottom}) inside={inside}");
-                if (!inside) win.Close();
-            }
-            catch { }
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(_panel).Handle;
+            if (hwnd == IntPtr.Zero) return;
+            NativeMethods.GetWindowRect(hwnd, out var r);
+            bool inside = x >= r.Left && x < r.Right && y >= r.Top && y < r.Bottom;
+            Diag.Log($"closeIfOutside ({x},{y}) rect=({r.Left},{r.Top},{r.Right},{r.Bottom}) inside={inside}");
+            if (!inside) _panel.HidePanel();
         }
+        catch { }
     }
 
-    /// <summary>Opens the folder's panel, or focuses it if already open (prevents duplicates
-    /// from a single-click + double-click both firing).</summary>
+    /// <summary>Opens a folder in the single reused panel window (created once, then hidden/re-shown).</summary>
     private void OpenPanel(FolderModel folder, bool forceReopen, System.Drawing.Point? anchor = null)
     {
-        if (_openPanels.TryGetValue(folder.Name, out var existing))
+        // Create the reused window on first use; keep it for the whole session (one window, flat memory).
+        if (_panel is null)
         {
-            Diag.Log($"openPanel '{folder.Name}' existing loaded={existing.IsLoaded} visible={existing.IsVisible} closing={existing.IsClosing} forceReopen={forceReopen}");
-            // Only reuse a genuinely open/visible panel; otherwise it's a stale reference
-            // (a panel that closed, is mid-close, or never finished opening) — drop it and open fresh.
-            if (!forceReopen && existing.IsLoaded && existing.IsVisible && !existing.IsClosing)
-            {
-                // Already open (e.g. the second click of a double-click just launched a fresh
-                // instance that forwarded here) — keep it open and bring it back to front rather
-                // than letting the focus churn dismiss it.
-                try { existing.ReassertOpen(); } catch { }
-                return;
-            }
-            try { existing.Close(); } catch { }
-            _openPanels.Remove(folder.Name);
+            _panel = new ExpandedPanelWindow(_store);
+            _panel.Closed += (_, _) => _panel = null; // only fires on real teardown (app exit)
         }
 
-        Diag.Log($"openPanel create '{folder.Name}' (open panels was {_openPanels.Count})");
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        var win = new ExpandedPanelWindow(_store, folder) { AnchorPoint = anchor };
-        long tCtor = sw.ElapsedMilliseconds;
-        _openPanels[folder.Name] = win;
-        win.Closed += (_, _) =>
+        // Already showing this same folder (e.g. a double-click's second instance forwarded here) —
+        // keep it up instead of rebuilding, so the focus churn can't dismiss it.
+        if (!forceReopen && _panel.IsShown &&
+            string.Equals(_panel.CurrentFolder?.Name, folder.Name, StringComparison.OrdinalIgnoreCase))
         {
-            if (_openPanels.TryGetValue(folder.Name, out var w) && ReferenceEquals(w, win))
-                _openPanels.Remove(folder.Name);
-            Diag.Log($"panel '{folder.Name}' Closed event");
-        };
-        win.Show();
-        Diag.Log($"openPanel show '{folder.Name}' ctor={tCtor}ms show={sw.ElapsedMilliseconds - tCtor}ms");
+            Diag.Log($"openPanel '{folder.Name}' already shown -> reassert");
+            try { _panel.ReassertOpen(); } catch { }
+            return;
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        _panel.OpenFor(folder, anchor);
+        Diag.Log($"openPanel show '{folder.Name}' openFor={sw.ElapsedMilliseconds}ms (reused window)");
     }
 
     private void ShowManager()
