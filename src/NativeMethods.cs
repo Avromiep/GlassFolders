@@ -152,6 +152,12 @@ internal static class NativeMethods
     internal const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     internal const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
 
+    // Cloak/uncloak: DWM keeps composing the window (so its rendered surface stays warm) but hides
+    // it from the screen. Revealing later is just an uncloak = instant, no re-show, no first-frame
+    // flash. This is how the panel opens fast even "after a long time".
+    internal const int DWMWA_CLOAK = 13;
+    internal const int DWMWA_CLOAKED = 14;
+
     // DWM_WINDOW_CORNER_PREFERENCE
     internal const int DWMWCP_ROUND = 2;
 

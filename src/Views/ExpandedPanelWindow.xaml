@@ -10,7 +10,6 @@
         WindowStartupLocation="Manual"
         AllowDrop="True"
         Topmost="True"
-        Opacity="0"
         MouseWheel="Window_MouseWheel"
         KeyDown="Window_KeyDown"
         Deactivated="Window_Deactivated"

@@ -12,10 +12,41 @@ namespace GlassFolders.Views;
 public partial class ExpandedPanelWindow : Window
 {
     private readonly FolderStore _store;
-    private FolderModel _folder;
+    private FolderModel _folder = null!;   // set per-open in OpenFor (one window is reused)
     private int _pageIndex;
     private int _blurFactor = 11;
     private bool _closeArmed;
+
+    // ---- Reuse + DWM cloak (fast, flash-free open even after long idle) ----
+    //
+    // One window is created ONCE at login and kept alive. Instead of Show()/Hide() (a layered
+    // AllowsTransparency window is software-rendered, so Show() is slow — ~1.3s cold — and its
+    // first frame flashes), we keep it composed-but-hidden with DWM cloak. Opening = reconfigure
+    // the (still-hidden) window, capture the wallpaper behind its target spot, then UNCLOAK — an
+    // instant reveal of an already-rendered surface. A background heartbeat keeps the surface and
+    // its memory pages hot so the "after a while" open is as fast as a warm one.
+    private const int OffscreenX = -32000;
+    private bool _realized;
+    private bool _open;
+    private System.Windows.Threading.DispatcherTimer? _heartbeat;
+
+    /// <summary>True while the panel is actually shown to the user (uncloaked).</summary>
+    public bool IsOpen => _open;
+
+    /// <summary>Name of the folder currently loaded (for the App's "same folder" reuse check).</summary>
+    public string? CurrentFolderName => _folder?.Name;
+
+    private IntPtr Hwnd => new System.Windows.Interop.WindowInteropHelper(this).Handle;
+
+    private void SetCloak(bool on)
+    {
+        try
+        {
+            int v = on ? 1 : 0;
+            NativeMethods.DwmSetWindowAttribute(Hwnd, NativeMethods.DWMWA_CLOAK, ref v, sizeof(int));
+        }
+        catch { }
+    }
 
     /// <summary>Screen point of the clicked folder icon (device px). The panel opens on this
     /// point's display, so it never lands on a different monitor than the folder.</summary>
@@ -24,24 +55,128 @@ public partial class ExpandedPanelWindow : Window
     private static readonly Brush DotActive = new SolidColorBrush(Color.FromArgb(0xDD, 0x20, 0x24, 0x28));
     private static readonly Brush DotInactive = new SolidColorBrush(Color.FromArgb(0x55, 0x20, 0x24, 0x28));
 
-    public ExpandedPanelWindow(FolderStore store, FolderModel folder)
+    public ExpandedPanelWindow(FolderStore store)
     {
         _store = store;
-        _folder = folder;
+        ShowActivated = false;   // the one-time warm-up Show must not steal focus
         InitializeComponent();
 
         DotActive.Freeze();
         DotInactive.Freeze();
-        TitleText.Text = folder.Name;
-        ApplyFrostiness(folder.Frostiness);
 
         ItemsGrid.PreviewMouseLeftButtonDown += ItemsGrid_PreviewMouseLeftButtonDown;
         ItemsGrid.PreviewMouseMove += ItemsGrid_PreviewMouseMove;
 
         // Regaining focus cancels a pending debounced close (the transient blip passed).
         Activated += (_, _) => _deactivateTimer?.Stop();
+    }
 
-        Loaded += OnLoaded;
+    /// <summary>
+    /// Create the HWND and pay the layered-window's one-time render cost NOW (off-screen, cloaked),
+    /// so later opens are just an uncloak. Safe to call repeatedly; only the first call does work.
+    /// </summary>
+    public void EnsureWarm()
+    {
+        if (_realized) return;
+        _realized = true;
+        try
+        {
+            Left = OffscreenX; Top = 0;
+            Root.Opacity = 0;              // nothing visible even if a frame slips out before cloak
+            Show();                        // pays the slow layered-window creation ONCE, off-screen
+            SetCloak(true);                // hidden, but DWM keeps composing it (stays warm)
+            StartHeartbeat();
+            Services.Diag.Log("panel warmed (created + cloaked off-screen)");
+        }
+        catch (Exception ex) { Services.Diag.Log($"panel warm failed: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Show the panel for a folder. Reconfigures the reused window while it's still hidden, grabs
+    /// the wallpaper behind its target position, then uncloaks for an instant, flash-free reveal.
+    /// </summary>
+    public void OpenFor(FolderModel folder, System.Drawing.Point? anchor)
+    {
+        EnsureWarm();
+        SetCloak(true);                    // ensure hidden while we reconfigure + capture
+        _deactivateTimer?.Stop();
+
+        _folder = folder;
+        AnchorPoint = anchor;
+        _pageIndex = 0;
+        TitleText.Text = folder.Name;
+        EndEdit();                         // in case a rename box was left open on a prior folder
+        ApplyFrostiness(folder.Frostiness);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        RenderPage();
+        long tRender = sw.ElapsedMilliseconds;
+
+        // Finalize size (SizeToContent settles here) then position, so the bottom/centre anchors use
+        // the real height. Moving the window is invisible because it's cloaked.
+        UpdateLayout();
+        PositionNearCursor();
+        UpdateLayout();
+
+        // The window is cloaked (not on screen), so this grab of the target region is clean —
+        // no risk of capturing the panel's own pixels (the old "too white" blur bug).
+        CaptureAndBlurBackground();
+        long tCapture = sw.ElapsedMilliseconds - tRender;
+        Services.Diag.Log($"panel '{folder.Name}' open-prep render={tRender}ms capture={tCapture}ms total={sw.ElapsedMilliseconds}ms");
+
+        // Reset the pop-in start state. Clear any held animation first — a finished WPF animation
+        // pins the property (HoldEnd), so setting Opacity/Scale directly would otherwise be ignored.
+        Root.BeginAnimation(OpacityProperty, null);
+        OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        OpenScale.ScaleX = OpenScale.ScaleY = 0.95;
+        Root.Opacity = 0;                  // invisible content, so the reveal can't flash
+
+        SetCloak(false);                   // instant reveal of the already-rendered surface
+        _open = true;
+        PlayOpenAnimation();               // fade + scale the content in from the reset state
+
+        // Best-effort bring-to-front (see note in the old OnLoaded).
+        Activate();
+        Focus();
+        try { NativeMethods.BringWindowToTop(Hwnd); } catch { }
+        try { NativeMethods.SetForegroundWindow(Hwnd); } catch { }
+
+        ArmCloseAfter(450);
+        Services.Diag.Log($"panel '{folder.Name}' open pos=({Left:0},{Top:0}) size={ActualWidth:0}x{ActualHeight:0} IsActive={IsActive}");
+    }
+
+    /// <summary>Hide the panel but keep the window alive and warm for the next open.</summary>
+    public void HidePanel()
+    {
+        if (!_realized) return;
+        _open = false;
+        _closeArmed = false;
+        _armTimer?.Stop();
+        _deactivateTimer?.Stop();
+        SetCloak(true);          // instant hide (DWM keeps composing it)
+        try { Left = OffscreenX; } catch { }   // park off-screen so it can never intercept a click
+    }
+
+    /// <summary>Keep the cloaked surface and our memory pages hot so a cold open never happens.</summary>
+    private void StartHeartbeat()
+    {
+        _heartbeat = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background)
+        { Interval = TimeSpan.FromSeconds(45) };
+        _heartbeat.Tick += (_, _) =>
+        {
+            if (_open) return;   // no need while the user is looking at it
+            try
+            {
+                Root.InvalidateVisual();   // force WPF to re-render the (cloaked) surface → pages stay hot
+                NativeMethods.SetProcessWorkingSetSizeEx(
+                    NativeMethods.GetCurrentProcess(),
+                    (IntPtr)(80L * 1024 * 1024), (IntPtr)(1024L * 1024 * 1024),
+                    NativeMethods.QUOTA_LIMITS_HARDWS_MIN_ENABLE | NativeMethods.QUOTA_LIMITS_HARDWS_MAX_DISABLE);
+            }
+            catch { }
+        };
+        _heartbeat.Start();
     }
 
     // ---- Drag an app OUT of the folder to remove it (drop it outside the glass) ----
@@ -282,44 +417,6 @@ public partial class ExpandedPanelWindow : Window
         _blurFactor = (int)Math.Round(blur);
     }
 
-    private void OnLoaded(object? sender, RoutedEventArgs e)
-    {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        RenderPage();
-        long tRender = sw.ElapsedMilliseconds;
-
-        // Finalize size (SizeToContent settles here) BEFORE positioning, so the bottom/center
-        // anchors use the real height — otherwise the bottom row spills off-screen.
-        UpdateLayout();
-        PositionNearCursor();
-        UpdateLayout();
-
-        // Grab the wallpaper behind the panel (window is still Opacity=0, so the grab is clean).
-        CaptureAndBlurBackground();
-        long tCapture = sw.ElapsedMilliseconds - tRender;
-        Services.Diag.Log($"panel '{_folder.Name}' open-prep render={tRender}ms capture={tCapture}ms total={sw.ElapsedMilliseconds}ms");
-
-        PlayOpenAnimation();
-
-        // Best-effort bring-to-front (no AttachThreadInput — that couples our input queue with
-        // Explorer's and leaves the desktop's focus/redraw glitched, needing an icon "flash" to
-        // recover). The panel is Topmost so it's visible regardless; closing is handled by the
-        // click-watcher detecting a click outside it, so we don't depend on true foreground.
-        Activate();
-        Focus();
-        try { NativeMethods.BringWindowToTop(new System.Windows.Interop.WindowInteropHelper(this).Handle); }
-        catch { }
-        try { NativeMethods.SetForegroundWindow(new System.Windows.Interop.WindowInteropHelper(this).Handle); }
-        catch { }
-
-        // Grace period: ignore any Deactivated that fires right as we open (the race that made
-        // folders "open and vanish"). After this, focus-loss also closes it, as a complement to
-        // the click-outside close.
-        ArmCloseAfter(450);
-
-        Services.Diag.Log($"panel '{_folder.Name}' loaded pos=({Left:0},{Top:0}) size={ActualWidth:0}x{ActualHeight:0} IsActive={IsActive} Topmost={Topmost}");
-    }
-
     /// <summary>
     /// Grabs the screen region behind the glass panel, blurs it, and paints it as the panel
     /// background. The rounded Border clips it, so there is no square blur behind the corners.
@@ -469,8 +566,9 @@ public partial class ExpandedPanelWindow : Window
         OpenScale.CenterY = ActualHeight / 2;
         OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, scale);
         OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, scale);
-        // Fade the whole (layered) window in from the transparent state used during capture.
-        BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(55)));
+        // Fade the CONTENT in (not the window opacity — the window stays opaque; the reveal is the
+        // DWM uncloak). Starting from Root.Opacity=0 guarantees no full-opacity first-frame flash.
+        Root.BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(70)));
     }
 
     // ---- Paging ----
@@ -568,7 +666,7 @@ public partial class ExpandedPanelWindow : Window
     {
         switch (e.Key)
         {
-            case Key.Escape: SafeClose(); break;
+            case Key.Escape: HidePanel(); break;
             case Key.Left: ChangePage(-1); break;
             case Key.Right: ChangePage(+1); break;
         }
@@ -624,7 +722,7 @@ public partial class ExpandedPanelWindow : Window
         {
             Services.Diag.Log($"panel launch '{item.DisplayName}' -> {item.LnkPath}");
             Process.Start(new ProcessStartInfo(item.LnkPath) { UseShellExecute = true });
-            SafeClose();
+            HidePanel();
         }
         catch (Exception ex)
         {
@@ -698,43 +796,20 @@ public partial class ExpandedPanelWindow : Window
 
     private void Window_Deactivated(object? sender, EventArgs e)
     {
-        Services.Diag.Log($"panel '{_folder.Name}' Deactivated armed={_closeArmed} suppress={SuppressAutoClose} closing={_closing}");
-        if (SuppressAutoClose || !_closeArmed || _closing) return;
+        if (SuppressAutoClose || !_closeArmed || !_open) return;
+        Services.Diag.Log($"panel '{_folder.Name}' Deactivated armed={_closeArmed}");
 
         // Debounce: a transient focus blip — launching a second instance from a double-click, a
         // toast/notification, a background window flashing up — shouldn't dismiss the folder. Only
-        // close if we're still not the active window a beat later. A genuine app-switch stays gone;
+        // hide if we're still not the active window a beat later. A genuine app-switch stays gone;
         // clicking elsewhere is handled separately by the click-outside watcher.
         _deactivateTimer?.Stop();
         _deactivateTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(320) };
         _deactivateTimer.Tick += (_, _) =>
         {
             _deactivateTimer?.Stop();
-            if (!IsActive && !SuppressAutoClose && !_closing) SafeClose();
+            if (!IsActive && !SuppressAutoClose && _open) HidePanel();
         };
         _deactivateTimer.Start();
-    }
-
-    private bool _closing;
-
-    /// <summary>True once the panel has begun closing — App uses this so a click that arrives
-    /// while the panel is tearing down reopens a fresh one instead of "reviving" the dying one
-    /// (the "close it and it won't reopen" bug).</summary>
-    public bool IsClosing => _closing;
-
-    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
-    {
-        _closing = true;
-        base.OnClosing(e);
-    }
-
-    /// <summary>Closes once. Calling Close() again while a window is already closing throws
-    /// (which previously crashed the whole app when launching an app deactivated the panel
-    /// mid-close).</summary>
-    private void SafeClose()
-    {
-        if (_closing) return;
-        _closing = true;
-        try { Close(); } catch { }
     }
 }
