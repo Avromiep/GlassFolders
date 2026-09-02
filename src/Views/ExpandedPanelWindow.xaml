@@ -10,6 +10,7 @@
         WindowStartupLocation="Manual"
         AllowDrop="True"
         Topmost="True"
+        FocusVisualStyle="{x:Null}"
         MouseWheel="Window_MouseWheel"
         KeyDown="Window_KeyDown"
         Deactivated="Window_Deactivated"
@@ -19,6 +20,7 @@
     <Window.Resources>
         <!-- Minimal chevron nav button: just an arrow glyph that brightens on hover -->
         <Style x:Key="ChevronButton" TargetType="Button">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
@@ -46,6 +48,7 @@
 
         <!-- App tile button inside the grid -->
         <Style x:Key="AppTile" TargetType="Button">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
@@ -119,7 +122,8 @@
 
                 <!-- Page dots -->
                 <ItemsControl x:Name="Dots" DockPanel.Dock="Bottom" Margin="0,12,0,2"
-                              HorizontalAlignment="Center">
+                              HorizontalAlignment="Center" Focusable="False"
+                              FocusVisualStyle="{x:Null}" KeyboardNavigation.IsTabStop="False">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
@@ -145,7 +149,9 @@
                               StrokeThickness="2.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
                     </Button>
 
-                    <ItemsControl x:Name="ItemsGrid" Grid.Column="1">
+                    <ItemsControl x:Name="ItemsGrid" Grid.Column="1"
+                                  Focusable="False" FocusVisualStyle="{x:Null}"
+                                  KeyboardNavigation.IsTabStop="False">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <UniformGrid Rows="3" Columns="3"/>
