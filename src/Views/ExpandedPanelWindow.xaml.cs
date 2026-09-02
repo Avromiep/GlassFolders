@@ -17,20 +17,30 @@ public partial class ExpandedPanelWindow : Window
     private int _blurFactor = 11;
     private bool _closeArmed;
 
-    // ---- Reuse + DWM cloak (fast, flash-free open even after long idle) ----
+    // ---- Reuse via continuous composition (fast + reliably flash-free) ----
     //
-    // One window is created ONCE at login and kept alive. Instead of Show()/Hide() (a layered
-    // AllowsTransparency window is software-rendered, so Show() is slow — ~1.3s cold — and its
-    // first frame flashes), we keep it composed-but-hidden with DWM cloak. Opening = reconfigure
-    // the (still-hidden) window, capture the wallpaper behind its target spot, then UNCLOAK — an
-    // instant reveal of an already-rendered surface. A background heartbeat keeps the surface and
-    // its memory pages hot so the "after a while" open is as fast as a warm one.
-    private const int OffscreenX = -32000;
+    // One window is created ONCE at login and kept alive, always shown and ON-SCREEN, but made
+    // invisible by animating its CONTENT opacity (Root.Opacity) to 0 rather than hiding the window.
+    // Because the window is never hidden/cloaked, DWM composes it continuously, so its invisible
+    // (Opacity=0) state is always reliably painted. Showing a folder is then just animating
+    // Root.Opacity 0->1 — a smooth ramp, never a "reveal" of a retained surface. That is the key:
+    // cloak/uncloak (and Hide/Show, and move-on-screen) all expose whatever frame the surface last
+    // retained, which under load is the PREVIOUS folder at full opacity = the flash. An opacity
+    // animation on an always-composed window cannot do that. While invisible the window is made
+    // click-through so desktop clicks beneath it pass through.
     private bool _realized;
     private bool _open;
     private System.Windows.Threading.DispatcherTimer? _heartbeat;
 
-    /// <summary>True while the panel is actually shown to the user (uncloaked).</summary>
+    // Live-capture bookkeeping: the screen rect the current frost background was grabbed for, and
+    // when the panel was last hidden. On a rapid same-spot switch (just hidden), the old panel may
+    // not have cleared the screen yet, so we reuse that last (clean) grab instead of re-grabbing
+    // and catching the panel itself; when opening from a settled idle state the window is reliably
+    // transparent, so we grab fresh (current desktop).
+    private System.Drawing.Rectangle _bgRect;
+    private int _lastHideMs = -100000;
+
+    /// <summary>True while the panel is actually shown to the user.</summary>
     public bool IsOpen => _open;
 
     /// <summary>Name of the folder currently loaded (for the App's "same folder" reuse check).</summary>
@@ -38,12 +48,18 @@ public partial class ExpandedPanelWindow : Window
 
     private IntPtr Hwnd => new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
-    private void SetCloak(bool on)
+    /// <summary>
+    /// Make the (always-on-screen) window click-through + non-activating while it's invisible, so
+    /// the transparent panel never eats a desktop click; clear it when the panel is interactive.
+    /// </summary>
+    private void SetClickThrough(bool on)
     {
         try
         {
-            int v = on ? 1 : 0;
-            NativeMethods.DwmSetWindowAttribute(Hwnd, NativeMethods.DWMWA_CLOAK, ref v, sizeof(int));
+            int ex = NativeMethods.GetWindowLong(Hwnd, NativeMethods.GWL_EXSTYLE);
+            if (on) ex |= NativeMethods.WS_EX_TRANSPARENT | NativeMethods.WS_EX_NOACTIVATE;
+            else ex &= ~(NativeMethods.WS_EX_TRANSPARENT | NativeMethods.WS_EX_NOACTIVATE);
+            NativeMethods.SetWindowLong(Hwnd, NativeMethods.GWL_EXSTYLE, ex);
         }
         catch { }
     }
@@ -72,8 +88,9 @@ public partial class ExpandedPanelWindow : Window
     }
 
     /// <summary>
-    /// Create the HWND and pay the layered-window's one-time render cost NOW (off-screen, cloaked),
-    /// so later opens are just an uncloak. Safe to call repeatedly; only the first call does work.
+    /// Create the HWND and pay the layered-window's one-time render cost NOW, so later opens are
+    /// just an opacity animation. The window stays shown on-screen but fully transparent
+    /// (Root.Opacity=0) and click-through. Safe to call repeatedly; only the first call does work.
     /// </summary>
     public void EnsureWarm()
     {
@@ -81,25 +98,49 @@ public partial class ExpandedPanelWindow : Window
         _realized = true;
         try
         {
-            Left = OffscreenX; Top = 0;
-            Root.Opacity = 0;              // nothing visible even if a frame slips out before cloak
-            Show();                        // pays the slow layered-window creation ONCE, off-screen
-            SetCloak(true);                // hidden, but DWM keeps composing it (stays warm)
+            // Park it invisibly on the primary monitor (repositioned per open). It must be ON a
+            // real monitor — not off-screen — so DWM composes it continuously and its Opacity=0
+            // state stays reliably painted (that's what makes the reveal flash-free).
+            var wa = System.Windows.Forms.Screen.PrimaryScreen!.WorkingArea;
+            Left = wa.Left + 80; Top = wa.Top + 80;
+            Root.Opacity = 0;              // fully transparent = invisible + click-through
+            Show();                        // pays the slow layered-window creation ONCE
+            SetClickThrough(true);
             StartHeartbeat();
-            Services.Diag.Log("panel warmed (created + cloaked off-screen)");
+            Services.Diag.Log("panel warmed (shown transparent, ready)");
         }
         catch (Exception ex) { Services.Diag.Log($"panel warm failed: {ex.Message}"); }
     }
 
     /// <summary>
-    /// Show the panel for a folder. Reconfigures the reused window while it's still hidden, grabs
-    /// the wallpaper behind its target position, then uncloaks for an instant, flash-free reveal.
+    /// Show the panel for a folder. The window is already on-screen and composed; we set its
+    /// content while transparent, then animate the CONTENT opacity in. No hide/cloak/reveal is
+    /// involved, so a stale previous frame can never leak through.
     /// </summary>
     public void OpenFor(FolderModel folder, System.Drawing.Point? anchor)
     {
         EnsureWarm();
-        SetCloak(true);                    // ensure hidden while we reconfigure + capture
         _deactivateTimer?.Stop();
+        bool wasVisible = _open;
+
+        // Force the content invisible BEFORE we swap it in, and clear any held animation (a finished
+        // WPF animation pins the property, so a direct set would be ignored). On an always-composed
+        // window this Opacity=0 paints reliably within a frame — no retained full-opacity frame.
+        Root.BeginAnimation(OpacityProperty, null);
+        OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        if (wasVisible)
+        {
+            // Switching folders while already visible: keep it fully shown and swap the content in
+            // place below (old folder -> new folder in one composited frame). No opacity change =
+            // no reveal = no chance of flashing a stale frame.
+            Root.Opacity = 1; OpenScale.ScaleX = OpenScale.ScaleY = 1;
+        }
+        else
+        {
+            // Opening from hidden: start invisible, then fade the content in once it's set.
+            Root.Opacity = 0; OpenScale.ScaleX = OpenScale.ScaleY = 0.97;
+        }
 
         _folder = folder;
         AnchorPoint = anchor;
@@ -112,41 +153,35 @@ public partial class ExpandedPanelWindow : Window
         RenderPage();
         long tRender = sw.ElapsedMilliseconds;
 
-        // Finalize size (SizeToContent settles here) then position, so the bottom/centre anchors use
-        // the real height. Moving the window is invisible because it's cloaked.
+        // Finalize size (SizeToContent settles here) then position. Moving is invisible (Opacity=0).
         UpdateLayout();
         PositionNearCursor();
         UpdateLayout();
 
-        // The window is cloaked (not on screen), so this grab of the target region is clean —
-        // no risk of capturing the panel's own pixels (the old "too white" blur bug).
-        CaptureAndBlurBackground();
+        // Grab + blur the live desktop behind the panel. Skipped entirely on a true in-place switch
+        // (window opaque). Otherwise CaptureAndBlurBackground decides between a fresh grab (settled
+        // idle -> window transparent -> clean, current) and reusing the last grab (rapid same-spot
+        // switch -> old panel may still be on screen -> avoid self-capture).
+        if (!wasVisible) CaptureAndBlurBackground();
         long tCapture = sw.ElapsedMilliseconds - tRender;
-        Services.Diag.Log($"panel '{folder.Name}' open-prep render={tRender}ms capture={tCapture}ms total={sw.ElapsedMilliseconds}ms");
 
-        // Reset the pop-in start state. Clear any held animation first — a finished WPF animation
-        // pins the property (HoldEnd), so setting Opacity/Scale directly would otherwise be ignored.
-        Root.BeginAnimation(OpacityProperty, null);
-        OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-        OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-        OpenScale.ScaleX = OpenScale.ScaleY = 0.95;
-        Root.Opacity = 0;                  // invisible content, so the reveal can't flash
-
-        SetCloak(false);                   // instant reveal of the already-rendered surface
+        SetClickThrough(false);            // interactive now
         _open = true;
-        PlayOpenAnimation();               // fade + scale the content in from the reset state
 
-        // Best-effort bring-to-front (see note in the old OnLoaded).
+        // From hidden: reveal by animating the content opacity up from the (reliably composed) 0
+        // state. When switching, the content already swapped in place at full opacity — nothing to
+        // animate, so no reveal at all.
+        if (!wasVisible) PlayOpenAnimation();
+
         Activate();
         Focus();
         try { NativeMethods.BringWindowToTop(Hwnd); } catch { }
         try { NativeMethods.SetForegroundWindow(Hwnd); } catch { }
-
         ArmCloseAfter(450);
-        Services.Diag.Log($"panel '{folder.Name}' open pos=({Left:0},{Top:0}) size={ActualWidth:0}x{ActualHeight:0} IsActive={IsActive}");
+        Services.Diag.Log($"panel '{folder.Name}' open-prep render={tRender}ms capture={tCapture}ms total={sw.ElapsedMilliseconds}ms switch={wasVisible} pos=({Left:0},{Top:0})");
     }
 
-    /// <summary>Hide the panel but keep the window alive and warm for the next open.</summary>
+    /// <summary>Hide the panel but keep the window alive, on-screen and warm for the next open.</summary>
     public void HidePanel()
     {
         if (!_realized) return;
@@ -154,11 +189,20 @@ public partial class ExpandedPanelWindow : Window
         _closeArmed = false;
         _armTimer?.Stop();
         _deactivateTimer?.Stop();
-        SetCloak(true);          // instant hide (DWM keeps composing it)
-        try { Left = OffscreenX; } catch { }   // park off-screen so it can never intercept a click
+
+        // Snap the content invisible. This is safe (no flash): the window stays on-screen and
+        // composed, so Opacity=0 paints within a frame; and it's the SAME (closing) folder, so even
+        // the one-frame lag just shows that folder a beat longer, never a wrong one. Then make it
+        // click-through so the transparent panel can't intercept desktop clicks.
+        Root.BeginAnimation(OpacityProperty, null);
+        OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        Root.Opacity = 0;
+        SetClickThrough(true);
+        _lastHideMs = Environment.TickCount;
     }
 
-    /// <summary>Keep the cloaked surface and our memory pages hot so a cold open never happens.</summary>
+    /// <summary>Keep our memory pages hot and the desktop cache current so opens stay fast.</summary>
     private void StartHeartbeat()
     {
         _heartbeat = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background)
@@ -168,7 +212,6 @@ public partial class ExpandedPanelWindow : Window
             if (_open) return;   // no need while the user is looking at it
             try
             {
-                Root.InvalidateVisual();   // force WPF to re-render the (cloaked) surface → pages stay hot
                 NativeMethods.SetProcessWorkingSetSizeEx(
                     NativeMethods.GetCurrentProcess(),
                     (IntPtr)(80L * 1024 * 1024), (IntPtr)(1024L * 1024 * 1024),
@@ -418,8 +461,10 @@ public partial class ExpandedPanelWindow : Window
     }
 
     /// <summary>
-    /// Grabs the screen region behind the glass panel, blurs it, and paints it as the panel
-    /// background. The rounded Border clips it, so there is no square blur behind the corners.
+    /// Grabs the LIVE screen region behind the glass panel, blurs it, and paints it as the panel
+    /// background — the real desktop right now, so the frost always matches what's behind it. This
+    /// only runs while the window is fully transparent (Root.Opacity=0), so the grab reads straight
+    /// through it and never captures the panel's own pixels. The rounded Border clips the result.
     /// </summary>
     private void CaptureAndBlurBackground()
     {
@@ -428,35 +473,39 @@ public partial class ExpandedPanelWindow : Window
             var topLeft = Frost.PointToScreen(new Point(0, 0)); // device pixels
             var src = PresentationSource.FromVisual(this);
             double sx = src?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-            double sy = src?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
             int w = (int)Math.Round(Frost.ActualWidth * sx);
-            int h = (int)Math.Round(Frost.ActualHeight * sy);
+            int h = (int)Math.Round(Frost.ActualHeight * sx);
             if (w <= 0 || h <= 0) return;
 
-            // Capture a padded region AROUND the panel so the blur near the panel's edges has
-            // real neighbours to mix with — otherwise the edges look less frosted than the
-            // centre (a blur has fewer samples at an image edge). Then crop back to the panel.
+            // Rapid same-spot switch (just hidden): the old panel may still be composited on screen,
+            // so a fresh grab would catch it. The desktop behind is unchanged over such a short gap,
+            // so keep the last (clean) grab. A settled open (>150ms since hide) means the window has
+            // reliably composited to transparent, so we fall through and grab the CURRENT desktop.
+            var newRect = new System.Drawing.Rectangle((int)topLeft.X, (int)topLeft.Y, w, h);
+            bool recentHide = Environment.TickCount - _lastHideMs < 150;
+            bool sameSpot = !_bgRect.IsEmpty
+                && Math.Abs(newRect.X - _bgRect.X) < 4 && Math.Abs(newRect.Y - _bgRect.Y) < 4
+                && Math.Abs(newRect.Width - _bgRect.Width) < 4 && Math.Abs(newRect.Height - _bgRect.Height) < 4;
+            if (recentHide && sameSpot && Frost.Background != null) return;
+
+            // Capture a padded region AROUND the panel so the blur near the edges has real
+            // neighbours to mix with — otherwise the edges look less frosted than the centre.
             int pad = (int)Math.Round(70 * sx);
             int cx = (int)topLeft.X - pad, cy = (int)topLeft.Y - pad;
             int cw = w + pad * 2, ch = h + pad * 2;
 
-            var _sw = System.Diagnostics.Stopwatch.StartNew();
             using var shot = new System.Drawing.Bitmap(cw, ch, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             using (var g = System.Drawing.Graphics.FromImage(shot))
                 g.CopyFromScreen(cx, cy, 0, 0, new System.Drawing.Size(cw, ch));
-            long _tCopy = _sw.ElapsedMilliseconds;
 
             using var blurredBig = DownUpBlur(shot, _blurFactor);
-            long _tBlur = _sw.ElapsedMilliseconds - _tCopy;
             using var cropped = new System.Drawing.Bitmap(w, h);
             using (var g2 = System.Drawing.Graphics.FromImage(cropped))
                 g2.DrawImage(blurredBig, new System.Drawing.Rectangle(0, 0, w, h),
                     new System.Drawing.Rectangle(pad, pad, w, h), System.Drawing.GraphicsUnit.Pixel);
 
-            // Direct GDI->WPF handoff (no PNG encode/decode round-trip). The captured wallpaper is
-            // opaque, so we don't need alpha here — this shaves ~30ms off every open.
             Frost.Background = new ImageBrush(FastBitmapSource(cropped)) { Stretch = Stretch.Fill };
-            Services.Diag.Log($"  capture split: copy={_tCopy}ms blur={_tBlur}ms convert={_sw.ElapsedMilliseconds - _tCopy - _tBlur}ms ({cw}x{ch})");
+            _bgRect = newRect;
         }
         catch { /* leave the transparent background; tint + rim still read as glass */ }
     }
@@ -560,15 +609,17 @@ public partial class ExpandedPanelWindow : Window
 
     private void PlayOpenAnimation()
     {
+        // Snappy pop-in: a subtle, fast scale + quick fade so the folder appears near-instantly
+        // (the previous durations made the no-flash open feel sluggish).
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        var scale = new DoubleAnimation(0.95, 1.0, TimeSpan.FromMilliseconds(80)) { EasingFunction = ease };
+        var scale = new DoubleAnimation(0.97, 1.0, TimeSpan.FromMilliseconds(45)) { EasingFunction = ease };
         OpenScale.CenterX = ActualWidth / 2;
         OpenScale.CenterY = ActualHeight / 2;
         OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, scale);
         OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, scale);
         // Fade the CONTENT in (not the window opacity — the window stays opaque; the reveal is the
         // DWM uncloak). Starting from Root.Opacity=0 guarantees no full-opacity first-frame flash.
-        Root.BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(70)));
+        Root.BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(38)));
     }
 
     // ---- Paging ----

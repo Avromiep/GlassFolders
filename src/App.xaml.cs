@@ -10,15 +10,16 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.8";
+    public const string AppVersion = "0.3.12";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
     private WinForms.NotifyIcon? _tray;
     private ManagerWindow? _manager;
     private DesktopClickWatcher? _clickWatcher;
-    // One reused panel window, kept warm (created once, DWM-cloaked between opens) so opening is
-    // an instant uncloak rather than a slow layered-window Show — see ExpandedPanelWindow.
+    // One reused panel window, kept warm (created once, shown on-screen but transparent between
+    // opens) so opening is just an opacity animation rather than a slow layered-window Show — see
+    // ExpandedPanelWindow.
     private ExpandedPanelWindow? _panel;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -146,7 +147,7 @@ public partial class App : Application
         CheckForUpdatesInBackground(); // passive check → tray balloon if a newer version exists
 
         // Create the reused panel window and pay its one-time layered-window creation cost NOW
-        // (off-screen + cloaked), so the user's first open — and every open after — is instant.
+        // (shown transparent), so the user's first open — and every open after — is instant.
         _panel = new ExpandedPanelWindow(_store);
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
             () => { try { _panel?.EnsureWarm(); } catch { } });
