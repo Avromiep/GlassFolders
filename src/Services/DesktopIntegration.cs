@@ -20,6 +20,21 @@ public static class DesktopIntegration
     private static string ExePath =>
         Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "GlassFolders.exe");
 
+    /// <summary>
+    /// The fast launcher folder shortcuts point at: a tiny exe that just forwards "open" to the
+    /// running tray and exits, so a taskbar-pin / double-click opens in ~150ms instead of spinning
+    /// up the whole WPF app (~800ms). Falls back to the full exe if the launcher isn't present
+    /// (e.g. the portable single-exe distribution).
+    /// </summary>
+    private static string LauncherPath
+    {
+        get
+        {
+            var gf = Path.Combine(AppContext.BaseDirectory, "GFOpen.exe");
+            return File.Exists(gf) ? gf : ExePath;
+        }
+    }
+
     public static string DesktopLnkPathFor(string folderName) =>
         Path.Combine(DesktopDir, folderName + ".lnk");
 
@@ -45,7 +60,7 @@ public static class DesktopIntegration
         var lnkPath = DesktopLnkPathFor(folder.Name);
         ShellLink.Create(
             lnkPath,
-            targetPath: ExePath,
+            targetPath: LauncherPath,   // tiny fast forwarder (falls back to the full exe)
             arguments: $"--open \"{folder.Name}\"",
             iconPath: icoPath,
             iconIndex: 0,

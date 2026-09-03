@@ -11,11 +11,20 @@
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AssemblyName>GlassFolders</AssemblyName>
     <RootNamespace>GlassFolders</RootNamespace>
-    <Version>0.3.13</Version>
+    <Version>0.3.14</Version>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <!-- WPF drives DPI via the app manifest; silence WinForms' DPI-config warning. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
   </PropertyGroup>
+
+  <!-- GFOpen is a separate tiny launcher project living under src\GFOpen; keep its sources (and
+       its own generated obj files) out of this app's compilation. -->
+  <ItemGroup>
+    <Compile Remove="GFOpen\**\*.cs" />
+    <EmbeddedResource Remove="GFOpen\**" />
+    <None Remove="GFOpen\**" />
+    <Page Remove="GFOpen\**" />
+  </ItemGroup>
 
   <!-- WinForms is enabled only for NotifyIcon/Cursor/Screen. Drop its implicit global
        usings so System.Drawing.* and System.Windows.Forms.* don't collide with WPF types.

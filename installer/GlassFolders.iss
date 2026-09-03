@@ -40,6 +40,8 @@ SetupIconFile=..\src\Assets\app.ico
 
 [Files]
 Source: "..\dist\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+; Tiny fast launcher that folder shortcuts point at (forwards "open" to the running tray).
+Source: "..\dist\GFOpen.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [InstallDelete]
 ; Migration: older installs shipped as LiquidFolders.exe — remove it so the folder isn't left
