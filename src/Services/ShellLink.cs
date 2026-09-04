@@ -67,6 +67,24 @@ public static class ShellLink
         catch { return null; }
     }
 
+    /// <summary>Reads a .lnk's command-line arguments (null/empty if none).</summary>
+    public static string? ReadArguments(string lnkPath)
+    {
+        try
+        {
+            var link = (IShellLinkW)new CShellLink();
+            var file = (IPersistFile)link;
+            file.Load(lnkPath, 0);
+            var sb = new System.Text.StringBuilder(1024);
+            link.GetArguments(sb, sb.Capacity);
+            Marshal.ReleaseComObject(file);
+            Marshal.ReleaseComObject(link);
+            var s = sb.ToString();
+            return string.IsNullOrWhiteSpace(s) ? null : s;
+        }
+        catch { return null; }
+    }
+
     /// <summary>Resolves the target path a .lnk points at (best effort).</summary>
     public static string? ResolveTarget(string lnkPath)
     {

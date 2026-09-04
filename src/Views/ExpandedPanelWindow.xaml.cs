@@ -117,7 +117,11 @@ public partial class ExpandedPanelWindow : Window
     /// content while transparent, then animate the CONTENT opacity in. No hide/cloak/reveal is
     /// involved, so a stale previous frame can never leak through.
     /// </summary>
-    public void OpenFor(FolderModel folder, System.Drawing.Point? anchor)
+    public void OpenFor(FolderModel folder, System.Drawing.Point? anchor) => OpenFor(folder, anchor, popIn: false);
+
+    /// <param name="popIn">When switching a folder that's already open (e.g. navigating into a
+    /// nested subfolder), do a subtle scale pop so it reads as "going in" rather than a hard cut.</param>
+    public void OpenFor(FolderModel folder, System.Drawing.Point? anchor, bool popIn)
     {
         EnsureWarm();
         _deactivateTimer?.Stop();
@@ -133,8 +137,9 @@ public partial class ExpandedPanelWindow : Window
         {
             // Switching folders while already visible: keep it fully shown and swap the content in
             // place below (old folder -> new folder in one composited frame). No opacity change =
-            // no reveal = no chance of flashing a stale frame.
-            Root.Opacity = 1; OpenScale.ScaleX = OpenScale.ScaleY = 1;
+            // no reveal = no chance of flashing a stale frame. For a "go into subfolder" navigation
+            // (popIn) start slightly scaled-down so the swap gets a gentle zoom-in.
+            Root.Opacity = 1; OpenScale.ScaleX = OpenScale.ScaleY = popIn ? 0.96 : 1;
         }
         else
         {
@@ -169,9 +174,10 @@ public partial class ExpandedPanelWindow : Window
         _open = true;
 
         // From hidden: reveal by animating the content opacity up from the (reliably composed) 0
-        // state. When switching, the content already swapped in place at full opacity — nothing to
-        // animate, so no reveal at all.
+        // state. When switching in place, the content already swapped at full opacity; only a
+        // "go into subfolder" navigation gets a gentle scale pop.
         if (!wasVisible) PlayOpenAnimation();
+        else if (popIn) PlayScalePop();
 
         Activate();
         Focus();
@@ -622,6 +628,18 @@ public partial class ExpandedPanelWindow : Window
         Root.BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(38)));
     }
 
+    /// <summary>A gentle scale-up used when navigating into a nested subfolder (content already
+    /// swapped, stays fully opaque) — signals "going in" without a hard cut or a close/reopen.</summary>
+    private void PlayScalePop()
+    {
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        OpenScale.CenterX = ActualWidth / 2;
+        OpenScale.CenterY = ActualHeight / 2;
+        var scale = new DoubleAnimation(0.96, 1.0, TimeSpan.FromMilliseconds(120)) { EasingFunction = ease };
+        OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, scale);
+        OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, scale);
+    }
+
     // ---- Paging ----
 
     private void RenderPage()
@@ -769,6 +787,11 @@ public partial class ExpandedPanelWindow : Window
 
     private void Launch(ShortcutItem item)
     {
+        // A folder nested inside this one navigates IN PLACE (this reused window switches to it),
+        // instead of launching its shortcut — which would close this panel then reopen the other
+        // one (the close/reopen flicker). Only if it isn't one of our folders do we launch normally.
+        if (TryOpenNestedFolder(item)) return;
+
         try
         {
             Services.Diag.Log($"panel launch '{item.DisplayName}' -> {item.LnkPath}");
@@ -780,6 +803,52 @@ public partial class ExpandedPanelWindow : Window
             MessageBox.Show($"Couldn't launch {item.DisplayName}.\n\n{ex.Message}",
                 "Glass Folders", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    /// <summary>If the tile is one of our folders (its .lnk targets Glass Folders' own exe with an
+    /// `--open "&lt;folder&gt;"` argument that resolves to an existing folder), switch this panel into
+    /// that folder in place and return true — instead of launching it (which would close/reopen).</summary>
+    private bool TryOpenNestedFolder(ShortcutItem item)
+    {
+        try
+        {
+            string? name = ParseOpenName(ShellLink.ReadArguments(item.LnkPath));
+            if (name == null) return false;
+
+            // Must point at our own launcher/app — that's what makes it a folder shortcut, not an
+            // ordinary program that happens to take an --open argument.
+            var target = System.IO.Path.GetFileName(ShellLink.ResolveTarget(item.LnkPath) ?? "");
+            if (!target.Equals("GFOpen.exe", StringComparison.OrdinalIgnoreCase) &&
+                !target.Equals("GlassFolders.exe", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var folder = _store.FindByName(name);
+            if (folder == null) return false;
+            if (string.Equals(folder.Name, _folder?.Name, StringComparison.OrdinalIgnoreCase))
+                return true; // it's this same folder — ignore, don't relaunch
+
+            Services.Diag.Log($"panel nest: '{_folder?.Name}' -> '{folder.Name}' (in-place)");
+            OpenFor(folder, AnchorPoint, popIn: true);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Extracts the folder name from a `--open "Name"` (or `--open Name`) argument string.</summary>
+    private static string? ParseOpenName(string? args)
+    {
+        if (string.IsNullOrEmpty(args)) return null;
+        int i = args.IndexOf("--open", StringComparison.OrdinalIgnoreCase);
+        if (i < 0) return null;
+        var rest = args[(i + "--open".Length)..].TrimStart();
+        if (rest.StartsWith('"'))
+        {
+            int end = rest.IndexOf('"', 1);
+            return end > 1 ? rest[1..end] : null;
+        }
+        int sp = rest.IndexOf(' ');
+        rest = sp < 0 ? rest : rest[..sp];
+        return rest.Length == 0 ? null : rest;
     }
 
     private void RemoveItem(ShortcutItem item)
