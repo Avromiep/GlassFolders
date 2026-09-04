@@ -46,6 +46,35 @@
             </Style.Triggers>
         </Style>
 
+        <!-- Title-bar back arrow: a subtle round chevron that appears only inside a nested folder -->
+        <Style x:Key="NavBackButton" TargetType="Button">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="Foreground" Value="#AA202428"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bg" Background="Transparent" CornerRadius="15">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bg" Property="Background" Value="#26FFFFFF"/>
+                                <Setter Property="Foreground" Value="#EE101318"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bg" Property="Background" Value="#44FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- App tile button inside the grid -->
         <Style x:Key="AppTile" TargetType="Button">
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -104,8 +133,18 @@
                         Background="#FFFFFFFF"/>
 
                 <DockPanel Margin="22,16,22,14" LastChildFill="True">
-                <!-- Title (click to rename) -->
+                <!-- Title (click to rename), with a back arrow at the left when inside a subfolder -->
                 <Grid DockPanel.Dock="Top" Margin="0,2,0,14">
+                    <Button x:Name="BackButton" Style="{StaticResource NavBackButton}"
+                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                            Visibility="Collapsed" Click="Back_Click" ToolTip="Back to parent folder">
+                        <!-- Curved "return" arrow (↩): a left-pointing head with a shaft that hooks
+                             up on the right — clearly distinct from the thin page chevrons. -->
+                        <Path Data="M 7,6 L 3.2,10 L 7,14 M 3.2,10 L 11,10 C 14.6,10 14.6,4.4 11,4.4"
+                              StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              StrokeLineJoin="Round"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                    </Button>
                     <TextBlock x:Name="TitleText" FontSize="17" FontWeight="SemiBold" Foreground="#15181D"
                                HorizontalAlignment="Center" Cursor="Hand" ToolTip="Click to rename"
                                MouseLeftButtonUp="TitleText_Click">

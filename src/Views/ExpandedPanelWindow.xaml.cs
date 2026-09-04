@@ -117,11 +117,20 @@ public partial class ExpandedPanelWindow : Window
     /// content while transparent, then animate the CONTENT opacity in. No hide/cloak/reveal is
     /// involved, so a stale previous frame can never leak through.
     /// </summary>
-    public void OpenFor(FolderModel folder, System.Drawing.Point? anchor) => OpenFor(folder, anchor, popIn: false);
+    // The trail of parent folders when the user has navigated into nested subfolders, so the
+    // title-bar back arrow can step back out one level at a time.
+    private readonly List<string> _navStack = new();
+
+    /// <summary>Open a folder as a fresh top-level view — resets any nested-navigation trail.</summary>
+    public void OpenFor(FolderModel folder, System.Drawing.Point? anchor)
+    {
+        _navStack.Clear();
+        OpenForInternal(folder, anchor, popIn: false);
+    }
 
     /// <param name="popIn">When switching a folder that's already open (e.g. navigating into a
     /// nested subfolder), do a subtle scale pop so it reads as "going in" rather than a hard cut.</param>
-    public void OpenFor(FolderModel folder, System.Drawing.Point? anchor, bool popIn)
+    private void OpenForInternal(FolderModel folder, System.Drawing.Point? anchor, bool popIn)
     {
         EnsureWarm();
         _deactivateTimer?.Stop();
@@ -158,9 +167,11 @@ public partial class ExpandedPanelWindow : Window
         RenderPage();
         long tRender = sw.ElapsedMilliseconds;
 
-        // Finalize size (SizeToContent settles here) then position. Moving is invisible (Opacity=0).
+        // Finalize size (SizeToContent settles here) then position. Nested navigation (popIn) keeps
+        // the panel exactly where it is — drilling in/out of subfolders shouldn't move the window
+        // (that was the "jump"); it's a pure in-place content swap, and the reused blur still matches.
         UpdateLayout();
-        PositionNearCursor();
+        if (!popIn) PositionNearCursor();
         UpdateLayout();
 
         // Grab + blur the live desktop behind the panel. Skipped entirely on a true in-place switch
@@ -184,7 +195,26 @@ public partial class ExpandedPanelWindow : Window
         try { NativeMethods.BringWindowToTop(Hwnd); } catch { }
         try { NativeMethods.SetForegroundWindow(Hwnd); } catch { }
         ArmCloseAfter(450);
+        UpdateBackButton();
         Services.Diag.Log($"panel '{folder.Name}' open-prep render={tRender}ms capture={tCapture}ms total={sw.ElapsedMilliseconds}ms switch={wasVisible} pos=({Left:0},{Top:0})");
+    }
+
+    /// <summary>Show the title-bar back arrow only when we're inside a nested folder.</summary>
+    private void UpdateBackButton() => BackButton.Visibility =
+        _navStack.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    private void Back_Click(object sender, RoutedEventArgs e)
+    {
+        if (_navStack.Count == 0) return;
+        var parentName = _navStack[^1];
+        _navStack.RemoveAt(_navStack.Count - 1);
+        var parent = _store.FindByName(parentName);
+        if (parent != null)
+        {
+            Services.Diag.Log($"panel back: '{_folder?.Name}' -> '{parent.Name}'");
+            OpenForInternal(parent, AnchorPoint, popIn: true);
+        }
+        else UpdateBackButton();
     }
 
     /// <summary>Hide the panel but keep the window alive, on-screen and warm for the next open.</summary>
@@ -193,6 +223,7 @@ public partial class ExpandedPanelWindow : Window
         if (!_realized) return;
         _open = false;
         _closeArmed = false;
+        _navStack.Clear();   // closing resets the nested-navigation trail
         _armTimer?.Stop();
         _deactivateTimer?.Stop();
 
@@ -672,7 +703,7 @@ public partial class ExpandedPanelWindow : Window
         {
             Width = 60,
             Height = 60,
-            Source = ImageHelper.LoadIcon(item.LnkPath, 64),
+            Source = IconForItem(item),
             Stretch = Stretch.Uniform,
         };
         var label = new TextBlock
@@ -805,33 +836,67 @@ public partial class ExpandedPanelWindow : Window
         }
     }
 
-    /// <summary>If the tile is one of our folders (its .lnk targets Glass Folders' own exe with an
-    /// `--open "&lt;folder&gt;"` argument that resolves to an existing folder), switch this panel into
-    /// that folder in place and return true — instead of launching it (which would close/reopen).</summary>
+    /// <summary>If the tile is one of our folders, switch this panel into that folder in place and
+    /// return true — instead of launching it (which would close/reopen).</summary>
     private bool TryOpenNestedFolder(ShortcutItem item)
     {
         try
         {
-            string? name = ParseOpenName(ShellLink.ReadArguments(item.LnkPath));
+            var name = NestedFolderNameOf(item.LnkPath);
             if (name == null) return false;
-
-            // Must point at our own launcher/app — that's what makes it a folder shortcut, not an
-            // ordinary program that happens to take an --open argument.
-            var target = System.IO.Path.GetFileName(ShellLink.ResolveTarget(item.LnkPath) ?? "");
-            if (!target.Equals("GFOpen.exe", StringComparison.OrdinalIgnoreCase) &&
-                !target.Equals("GlassFolders.exe", StringComparison.OrdinalIgnoreCase))
-                return false;
-
             var folder = _store.FindByName(name);
             if (folder == null) return false;
             if (string.Equals(folder.Name, _folder?.Name, StringComparison.OrdinalIgnoreCase))
                 return true; // it's this same folder — ignore, don't relaunch
 
             Services.Diag.Log($"panel nest: '{_folder?.Name}' -> '{folder.Name}' (in-place)");
-            OpenFor(folder, AnchorPoint, popIn: true);
+            if (_folder != null) _navStack.Add(_folder.Name); // remember the parent for Back
+            OpenForInternal(folder, AnchorPoint, popIn: true);
             return true;
         }
         catch { return false; }
+    }
+
+    // lnk path -> the Glass Folders folder it opens (null = an ordinary shortcut). Cached by
+    // path+mtime so we read each .lnk at most once (folder detection touches COM).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long mtime, string? folder)> _nestedCache = new();
+
+    /// <summary>The folder a tile's .lnk opens if it's one of ours (targets our exe with an
+    /// `--open "&lt;name&gt;"` arg), else null. Result is cached per .lnk.</summary>
+    private static string? NestedFolderNameOf(string lnkPath)
+    {
+        try
+        {
+            long mtime = System.IO.File.GetLastWriteTimeUtc(lnkPath).Ticks;
+            if (_nestedCache.TryGetValue(lnkPath, out var c) && c.mtime == mtime) return c.folder;
+
+            string? folder = null;
+            var name = ParseOpenName(ShellLink.ReadArguments(lnkPath));
+            if (name != null)
+            {
+                var target = System.IO.Path.GetFileName(ShellLink.ResolveTarget(lnkPath) ?? "");
+                if (target.Equals("GFOpen.exe", StringComparison.OrdinalIgnoreCase) ||
+                    target.Equals("GlassFolders.exe", StringComparison.OrdinalIgnoreCase))
+                    folder = name;
+            }
+            _nestedCache[lnkPath] = (mtime, folder);
+            return folder;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Tile icon: for a nested folder, render its LIVE closed-folder composite (so it
+    /// matches the desktop icon and never goes stale when composites are regenerated); otherwise
+    /// the shortcut's own icon.</summary>
+    private System.Windows.Media.ImageSource? IconForItem(ShortcutItem item)
+    {
+        var name = NestedFolderNameOf(item.LnkPath);
+        if (name != null && _store.FindByName(name) is FolderModel nf)
+        {
+            try { return ImageHelper.ToImageSource(IconComposer.RenderPreview(nf.FirstPagePaths(), 64)); }
+            catch { }
+        }
+        return ImageHelper.LoadIcon(item.LnkPath, 64);
     }
 
     /// <summary>Extracts the folder name from a `--open "Name"` (or `--open Name`) argument string.</summary>
