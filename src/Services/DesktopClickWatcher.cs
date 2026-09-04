@@ -24,6 +24,19 @@ public sealed class DesktopClickWatcher : IDisposable
     private volatile bool _stop;
     private readonly Dictionary<string, long> _lastOpen = new(StringComparer.OrdinalIgnoreCase);
 
+    // ---- Taskbar-pin fast path ----
+    // A pinned folder normally opens by launching the tiny GFOpen forwarder (~150ms). But this
+    // already-running watcher sees every click, so it can open a pinned-folder click in-process —
+    // exactly like a desktop icon click (~70ms), with no launch. We identify the pin via its UI
+    // Automation button (AutomationId contains the folder's AppUserModelID) and hit-test the click
+    // against a cache of pin rectangles, refreshed while the cursor is over the taskbar so the click
+    // itself needs no (slow) UIA call. If the cache misses, GFOpen still opens it — graceful fallback.
+    private volatile (string name, System.Windows.Rect rect)[] _pins = Array.Empty<(string, System.Windows.Rect)>();
+    private long _pinsAt;
+    private volatile bool _refreshingPins;
+    private RECT _trayRect;
+    private long _trayRectAt;
+
     public DesktopClickWatcher(Func<string, bool> isOurFolder, Action<string, int, int> open,
         Action<int, int>? onClick = null)
     {
@@ -46,9 +59,12 @@ public sealed class DesktopClickWatcher : IDisposable
 
         // Warm up UI Automation off-thread: the very first FromPoint in a process pays a one-time
         // COM init cost (can be 100ms+), which would otherwise land on the user's first click.
+        // Also prime the taskbar location + folder-pin cache so the first pin click is fast too.
         Task.Run(() =>
         {
             try { _ = AutomationElement.FromPoint(new System.Windows.Point(0, 0)); } catch { }
+            try { UpdateTrayRect(); _trayRectAt = Environment.TickCount64; } catch { }
+            try { RefreshTaskbarPins(); _pinsAt = Environment.TickCount64; } catch { }
         });
     }
 
@@ -75,9 +91,21 @@ public sealed class DesktopClickWatcher : IDisposable
                 // A click, not a drag: barely moved and quick.
                 if (dx * dx + dy * dy <= 36 && dt < 700)
                 {
-                    _onClick?.Invoke(upPt.x, upPt.y); // let the app dismiss an open panel if outside it
-                    EvaluateClick(upPt);
+                    // A pinned-folder taskbar click opens in-process (fast); otherwise treat it as a
+                    // desktop/anywhere click (dismiss an open panel if outside it, then try icons).
+                    if (!TryTaskbarPinClick(upPt))
+                    {
+                        _onClick?.Invoke(upPt.x, upPt.y);
+                        EvaluateClick(upPt);
+                    }
                 }
+            }
+            else if (!down)
+            {
+                // Idle: while the cursor is over the taskbar, keep the folder-pin cache fresh so a
+                // click is an instant hit-test rather than a ~60ms UIA enumeration.
+                GetCursorPos(out var cur);
+                MaybeRefreshTaskbarPins(cur);
             }
 
             wasDown = down;
@@ -253,6 +281,98 @@ public sealed class DesktopClickWatcher : IDisposable
         GetWindowTextW(h, sb, sb.Capacity);
         var s = sb.ToString();
         return s.Length > 60 ? s[..60] + "…" : s;
+    }
+
+    /// <summary>
+    /// If the click landed on a pinned folder's taskbar button (per the cached rects), open it
+    /// in-process and return true. The pin ALSO launches GFOpen, which forwards the same open — the
+    /// app dedups it (already open -> reassert), so there's no double-open.
+    /// </summary>
+    private bool TryTaskbarPinClick(POINT pt)
+    {
+        try
+        {
+            var tr = _trayRect;
+            bool onTaskbar = tr.Right > tr.Left && pt.x >= tr.Left && pt.x < tr.Right
+                                                && pt.y >= tr.Top && pt.y < tr.Bottom;
+            if (!onTaskbar) return false;
+
+            var pins = _pins;
+            if (pins.Length == 0) return false;
+            var p = new System.Windows.Point(pt.x, pt.y);
+            foreach (var (name, rect) in pins)
+            {
+                if (!rect.Contains(p) || !_isOurFolder(name)) continue;
+                long now = Environment.TickCount64;
+                lock (_lastOpen)
+                {
+                    if (_lastOpen.TryGetValue(name, out var last) && now - last < 300) return true;
+                    _lastOpen[name] = now;
+                }
+                Diag.Log($"taskbar-pin click ({pt.x},{pt.y}) -> open '{name}' (in-process)");
+                _open(name, pt.x, pt.y);
+                return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    /// <summary>While the cursor is over the taskbar, refresh the folder-pin rect cache off-thread
+    /// (throttled) so a pin click is an instant hit-test.</summary>
+    private void MaybeRefreshTaskbarPins(POINT cur)
+    {
+        long now = Environment.TickCount64;
+        if (now - _trayRectAt > 4000) { UpdateTrayRect(); _trayRectAt = now; }
+
+        var tr = _trayRect;
+        bool overTaskbar = tr.Right > tr.Left && cur.x >= tr.Left && cur.x < tr.Right
+                                              && cur.y >= tr.Top && cur.y < tr.Bottom;
+        if (!overTaskbar || _refreshingPins || now - _pinsAt < 600) return;
+
+        _refreshingPins = true;
+        Task.Run(() =>
+        {
+            try { RefreshTaskbarPins(); }
+            catch { }
+            finally { _pinsAt = Environment.TickCount64; _refreshingPins = false; }
+        });
+    }
+
+    private void UpdateTrayRect()
+    {
+        try
+        {
+            var h = FindWindow("Shell_TrayWnd", null);
+            if (h != IntPtr.Zero && GetWindowRect(h, out var r)) _trayRect = r;
+        }
+        catch { }
+    }
+
+    /// <summary>Enumerate the taskbar's buttons and cache the rects of any that are our folder pins
+    /// (their UIA AutomationId embeds the folder's AppUserModelID, "…GlassFolders.Folder.&lt;slug&gt;").</summary>
+    private void RefreshTaskbarPins()
+    {
+        var h = FindWindow("Shell_TrayWnd", null);
+        if (h == IntPtr.Zero) return;
+        var tray = AutomationElement.FromHandle(h);
+        if (tray == null) return;
+
+        var btns = tray.FindAll(TreeScope.Descendants,
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button));
+
+        var list = new List<(string, System.Windows.Rect)>();
+        foreach (AutomationElement b in btns)
+        {
+            string aid, name; System.Windows.Rect r;
+            try { aid = b.Current.AutomationId; name = b.Current.Name; r = b.Current.BoundingRectangle; }
+            catch { continue; }
+            if (string.IsNullOrEmpty(aid) ||
+                aid.IndexOf("GlassFolders.Folder.", StringComparison.OrdinalIgnoreCase) < 0) continue;
+            if (string.IsNullOrEmpty(name) || r.Width <= 0 || r.Height <= 0) continue;
+            list.Add((name, r));
+        }
+        _pins = list.ToArray();
     }
 
     public void Dispose()
