@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.18";
+    public const string AppVersion = "0.3.19";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -21,6 +21,11 @@ public partial class App : Application
     // opens) so opening is just an opacity animation rather than a slow layered-window Show — see
     // ExpandedPanelWindow.
     private ExpandedPanelWindow? _panel;
+
+    // A taskbar-pin click is opened in-process by the watcher AND relaunches GFOpen, which forwards
+    // the same open ~50ms later. This maps folder name -> tick until which that redundant forward
+    // should be ignored (so closing the panel right after opening isn't undone by the late forward).
+    private readonly Dictionary<string, long> _suppressForwardUntil = new(StringComparer.OrdinalIgnoreCase);
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -156,8 +161,15 @@ public partial class App : Application
         _clickWatcher = new DesktopClickWatcher(
             isOurFolder: name => _store.FindByName(name) != null,
             // BeginInvoke (not Invoke) so a busy UI thread can never block the watcher's worker.
-            // Pass the click point so the panel opens on the folder icon's display.
-            open: (name, x, y) => Dispatcher.BeginInvoke(() => Dispatch(name, new List<string>(), new System.Drawing.Point(x, y))),
+            // Pass the click point so the panel opens on the folder icon's display. A taskbar-pin
+            // click ALSO launches GFOpen (the pin's target), which forwards the same open ~50ms
+            // later; note it so we can ignore that redundant forward (else closing the panel right
+            // after opening lets the late forward reopen it).
+            open: (name, x, y, fromTaskbar) => Dispatcher.BeginInvoke(() =>
+            {
+                if (fromTaskbar) _suppressForwardUntil[name] = Environment.TickCount64 + 1500;
+                Dispatch(name, new List<string>(), new System.Drawing.Point(x, y));
+            }),
             // Close an open panel when a click lands outside it (doesn't rely on window focus).
             onClick: (x, y) => Dispatcher.BeginInvoke(() => CloseIfOutside(x, y)));
         _clickWatcher.Install();
@@ -593,7 +605,23 @@ public partial class App : Application
         Dispatcher.Invoke(() =>
         {
             if (lines.Length >= 2 && lines[0] == "OPEN")
-                Dispatch(lines[1], lines.Skip(2).Where(l => l.Length > 0).ToList());
+            {
+                var name = lines[1];
+                var files = lines.Skip(2).Where(l => l.Length > 0).ToList();
+
+                // Drop the redundant forward from a taskbar-pin click the watcher already opened
+                // in-process (a plain open, no dropped files). Otherwise it reopens a panel the user
+                // closed in the moment between the in-process open and this forward arriving.
+                if (files.Count == 0 &&
+                    _suppressForwardUntil.TryGetValue(name, out var until) && Environment.TickCount64 < until)
+                {
+                    _suppressForwardUntil.Remove(name); // one-shot: only the matching forward
+                    Diag.Log($"ipc: ignoring redundant taskbar-pin forward for '{name}'");
+                    return;
+                }
+
+                Dispatch(name, files);
+            }
             else
                 ShowManager();
         });

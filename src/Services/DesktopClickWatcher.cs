@@ -17,7 +17,7 @@ namespace GlassFolders.Services;
 public sealed class DesktopClickWatcher : IDisposable
 {
     private readonly Func<string, bool> _isOurFolder;
-    private readonly Action<string, int, int> _open;
+    private readonly Action<string, int, int, bool> _open;   // (name, x, y, fromTaskbarPin)
     private readonly Action<int, int>? _onClick;
 
     private Thread? _thread;
@@ -42,7 +42,7 @@ public sealed class DesktopClickWatcher : IDisposable
     private readonly Dictionary<IntPtr, long> _trayPinsAt = new();
     private readonly HashSet<IntPtr> _refreshingTrays = new();
 
-    public DesktopClickWatcher(Func<string, bool> isOurFolder, Action<string, int, int> open,
+    public DesktopClickWatcher(Func<string, bool> isOurFolder, Action<string, int, int, bool> open,
         Action<int, int>? onClick = null)
     {
         _isOurFolder = isOurFolder;
@@ -206,7 +206,7 @@ public sealed class DesktopClickWatcher : IDisposable
                     _lastOpen[matched] = now;
                 }
                 Diag.Log($"  -> open {matched} at ({pt.x},{pt.y}) detect={_detectSw.ElapsedMilliseconds}ms");
-                _open(matched, pt.x, pt.y); // anchor the panel to the clicked icon's screen
+                _open(matched, pt.x, pt.y, false); // desktop icon: no redundant forwarder to expect
             }
             catch { }
         });
@@ -324,7 +324,7 @@ public sealed class DesktopClickWatcher : IDisposable
                         _lastOpen[name] = now;
                     }
                     Diag.Log($"taskbar-pin click ({pt.x},{pt.y}) -> open '{name}' (in-process)");
-                    _open(name, pt.x, pt.y);
+                    _open(name, pt.x, pt.y, true); // taskbar pin: expect + suppress GFOpen's forwarder
                     return true;
                 }
         }
