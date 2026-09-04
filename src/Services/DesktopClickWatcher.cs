@@ -31,11 +31,16 @@ public sealed class DesktopClickWatcher : IDisposable
     // Automation button (AutomationId contains the folder's AppUserModelID) and hit-test the click
     // against a cache of pin rectangles, refreshed while the cursor is over the taskbar so the click
     // itself needs no (slow) UIA call. If the cache misses, GFOpen still opens it — graceful fallback.
-    private volatile (string name, System.Windows.Rect rect)[] _pins = Array.Empty<(string, System.Windows.Rect)>();
-    private long _pinsAt;
-    private volatile bool _refreshingPins;
-    private RECT _trayRect;
-    private long _trayRectAt;
+    //
+    // Works across every monitor: the primary taskbar is Shell_TrayWnd and each additional monitor's
+    // taskbar is a Shell_SecondaryTrayWnd. We track them all and cache pins per-taskbar, refreshing
+    // only the one the cursor is over — so cost stays ~one enumeration regardless of monitor count.
+    private readonly object _pinLock = new();
+    private (IntPtr hwnd, RECT rect)[] _trays = Array.Empty<(IntPtr, RECT)>();
+    private long _traysAt;
+    private readonly Dictionary<IntPtr, (string name, System.Windows.Rect rect)[]> _pinsByTray = new();
+    private readonly Dictionary<IntPtr, long> _trayPinsAt = new();
+    private readonly HashSet<IntPtr> _refreshingTrays = new();
 
     public DesktopClickWatcher(Func<string, bool> isOurFolder, Action<string, int, int> open,
         Action<int, int>? onClick = null)
@@ -63,8 +68,13 @@ public sealed class DesktopClickWatcher : IDisposable
         Task.Run(() =>
         {
             try { _ = AutomationElement.FromPoint(new System.Windows.Point(0, 0)); } catch { }
-            try { UpdateTrayRect(); _trayRectAt = Environment.TickCount64; } catch { }
-            try { RefreshTaskbarPins(); _pinsAt = Environment.TickCount64; } catch { }
+            try
+            {
+                _trays = EnumerateTrays();
+                _traysAt = Environment.TickCount64;
+                foreach (var (h, _) in _trays) { try { RefreshTrayPins(h); } catch { } }
+            }
+            catch { }
         });
     }
 
@@ -292,70 +302,88 @@ public sealed class DesktopClickWatcher : IDisposable
     {
         try
         {
-            var tr = _trayRect;
-            bool onTaskbar = tr.Right > tr.Left && pt.x >= tr.Left && pt.x < tr.Right
-                                                && pt.y >= tr.Top && pt.y < tr.Bottom;
-            if (!onTaskbar) return false;
+            // Only bother if the click is on some taskbar.
+            var trays = _trays;
+            bool onAnyTaskbar = false;
+            foreach (var (_, tr) in trays)
+                if (tr.Right > tr.Left && pt.x >= tr.Left && pt.x < tr.Right && pt.y >= tr.Top && pt.y < tr.Bottom)
+                { onAnyTaskbar = true; break; }
+            if (!onAnyTaskbar) return false;
 
-            var pins = _pins;
-            if (pins.Length == 0) return false;
             var p = new System.Windows.Point(pt.x, pt.y);
-            foreach (var (name, rect) in pins)
-            {
-                if (!rect.Contains(p) || !_isOurFolder(name)) continue;
-                long now = Environment.TickCount64;
-                lock (_lastOpen)
+            (string name, System.Windows.Rect rect)[][] all;
+            lock (_pinLock) { all = _pinsByTray.Values.ToArray(); }
+            foreach (var pins in all)
+                foreach (var (name, rect) in pins)
                 {
-                    if (_lastOpen.TryGetValue(name, out var last) && now - last < 300) return true;
-                    _lastOpen[name] = now;
+                    if (!rect.Contains(p) || !_isOurFolder(name)) continue;
+                    long now = Environment.TickCount64;
+                    lock (_lastOpen)
+                    {
+                        if (_lastOpen.TryGetValue(name, out var last) && now - last < 300) return true;
+                        _lastOpen[name] = now;
+                    }
+                    Diag.Log($"taskbar-pin click ({pt.x},{pt.y}) -> open '{name}' (in-process)");
+                    _open(name, pt.x, pt.y);
+                    return true;
                 }
-                Diag.Log($"taskbar-pin click ({pt.x},{pt.y}) -> open '{name}' (in-process)");
-                _open(name, pt.x, pt.y);
-                return true;
-            }
         }
         catch { }
         return false;
     }
 
-    /// <summary>While the cursor is over the taskbar, refresh the folder-pin rect cache off-thread
-    /// (throttled) so a pin click is an instant hit-test.</summary>
+    /// <summary>While the cursor is over a taskbar, refresh THAT taskbar's folder-pin rect cache
+    /// off-thread (throttled) so a pin click there is an instant hit-test.</summary>
     private void MaybeRefreshTaskbarPins(POINT cur)
     {
         long now = Environment.TickCount64;
-        if (now - _trayRectAt > 4000) { UpdateTrayRect(); _trayRectAt = now; }
+        if (now - _traysAt > 4000) { _trays = EnumerateTrays(); _traysAt = now; }
 
-        var tr = _trayRect;
-        bool overTaskbar = tr.Right > tr.Left && cur.x >= tr.Left && cur.x < tr.Right
-                                              && cur.y >= tr.Top && cur.y < tr.Bottom;
-        if (!overTaskbar || _refreshingPins || now - _pinsAt < 600) return;
+        IntPtr hover = IntPtr.Zero;
+        foreach (var (hwnd, tr) in _trays)
+            if (tr.Right > tr.Left && cur.x >= tr.Left && cur.x < tr.Right && cur.y >= tr.Top && cur.y < tr.Bottom)
+            { hover = hwnd; break; }
+        if (hover == IntPtr.Zero) return;
 
-        _refreshingPins = true;
+        lock (_pinLock)
+        {
+            if (_refreshingTrays.Contains(hover)) return;
+            if (_trayPinsAt.TryGetValue(hover, out var at) && now - at < 600) return;
+            _refreshingTrays.Add(hover);
+        }
         Task.Run(() =>
         {
-            try { RefreshTaskbarPins(); }
+            try { RefreshTrayPins(hover); }
             catch { }
-            finally { _pinsAt = Environment.TickCount64; _refreshingPins = false; }
+            finally
+            {
+                lock (_pinLock) { _trayPinsAt[hover] = Environment.TickCount64; _refreshingTrays.Remove(hover); }
+            }
         });
     }
 
-    private void UpdateTrayRect()
+    /// <summary>All taskbars: the primary Shell_TrayWnd plus one Shell_SecondaryTrayWnd per extra monitor.</summary>
+    private static (IntPtr hwnd, RECT rect)[] EnumerateTrays()
     {
+        var list = new List<(IntPtr, RECT)>();
         try
         {
-            var h = FindWindow("Shell_TrayWnd", null);
-            if (h != IntPtr.Zero && GetWindowRect(h, out var r)) _trayRect = r;
+            var primary = FindWindow("Shell_TrayWnd", null);
+            if (primary != IntPtr.Zero && GetWindowRect(primary, out var pr)) list.Add((primary, pr));
+            IntPtr h = IntPtr.Zero;
+            while ((h = FindWindowEx(IntPtr.Zero, h, "Shell_SecondaryTrayWnd", null)) != IntPtr.Zero)
+                if (GetWindowRect(h, out var sr)) list.Add((h, sr));
         }
         catch { }
+        return list.ToArray();
     }
 
-    /// <summary>Enumerate the taskbar's buttons and cache the rects of any that are our folder pins
+    /// <summary>Enumerate one taskbar's buttons and cache the rects of any that are our folder pins
     /// (their UIA AutomationId embeds the folder's AppUserModelID, "…GlassFolders.Folder.&lt;slug&gt;").</summary>
-    private void RefreshTaskbarPins()
+    private void RefreshTrayPins(IntPtr hwnd)
     {
-        var h = FindWindow("Shell_TrayWnd", null);
-        if (h == IntPtr.Zero) return;
-        var tray = AutomationElement.FromHandle(h);
+        if (hwnd == IntPtr.Zero) return;
+        var tray = AutomationElement.FromHandle(hwnd);
         if (tray == null) return;
 
         var btns = tray.FindAll(TreeScope.Descendants,
@@ -372,7 +400,7 @@ public sealed class DesktopClickWatcher : IDisposable
             if (string.IsNullOrEmpty(name) || r.Width <= 0 || r.Height <= 0) continue;
             list.Add((name, r));
         }
-        _pins = list.ToArray();
+        lock (_pinLock) { _pinsByTray[hwnd] = list.ToArray(); }
     }
 
     public void Dispose()

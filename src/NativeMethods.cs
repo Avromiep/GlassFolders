@@ -290,6 +290,9 @@ internal static class NativeMethods
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     internal static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern IntPtr FindWindowEx(IntPtr parent, IntPtr childAfter, string? className, string? windowName);
+
     [DllImport("user32.dll")]
     internal static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
 

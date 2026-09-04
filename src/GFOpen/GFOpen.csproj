@@ -11,11 +11,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>GFOpen</AssemblyName>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <!-- NativeAOT: a true native exe (~1.7MB, no .NET runtime, ~15ms cold start). Publishing needs
-         the MSVC toolchain (VS "Desktop development with C++") on the BUILD machine only — end users
-         just get the finished .exe. Publish from a VS dev environment (vcvars64) so link.exe + its
-         libs resolve; see scripts\build-gfopen.bat. -->
-    <PublishAot>true</PublishAot>
+    <!-- Plain self-contained .NET (published R2R, single-file). NOT NativeAOT: since the taskbar
+         and desktop opens are now handled in-process by the tray, this launcher is only a fallback
+         (desktop double-click, a rare taskbar cache-miss, or tray-not-running), so its ~150ms start
+         is fine and we avoid depending on the MSVC/C++ build toolchain to build the release. -->
     <!-- Strip everything a one-shot pipe-forwarder doesn't need, to minimise cold startup. -->
     <InvariantGlobalization>true</InvariantGlobalization>
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
