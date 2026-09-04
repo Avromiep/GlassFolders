@@ -144,11 +144,11 @@ public partial class ExpandedPanelWindow : Window
         OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         if (wasVisible)
         {
-            // Switching folders while already visible: keep it fully shown and swap the content in
-            // place below (old folder -> new folder in one composited frame). No opacity change =
-            // no reveal = no chance of flashing a stale frame. For a "go into subfolder" navigation
-            // (popIn) start slightly scaled-down so the swap gets a gentle zoom-in.
-            Root.Opacity = 1; OpenScale.ScaleX = OpenScale.ScaleY = popIn ? 0.96 : 1;
+            // Switching folders while already visible (a taskbar switch, or nested in/out): keep it
+            // fully shown and swap the content in place — old folder -> new folder in one composited
+            // frame, NO animation. That's the smooth, instant nested navigation the user wants
+            // (an animation here read as the folder "opening" again).
+            Root.Opacity = 1; OpenScale.ScaleX = OpenScale.ScaleY = 1;
         }
         else
         {
@@ -184,11 +184,9 @@ public partial class ExpandedPanelWindow : Window
         SetClickThrough(false);            // interactive now
         _open = true;
 
-        // From hidden: reveal by animating the content opacity up from the (reliably composed) 0
-        // state. When switching in place, the content already swapped at full opacity; only a
-        // "go into subfolder" navigation gets a gentle scale pop.
+        // Opening the folder (from hidden) plays the open animation. An in-place switch (taskbar
+        // switch or nested in/out) has no animation — the content just swaps.
         if (!wasVisible) PlayOpenAnimation();
-        else if (popIn) PlayScalePop();
 
         Activate();
         Focus();
@@ -199,9 +197,20 @@ public partial class ExpandedPanelWindow : Window
         Services.Diag.Log($"panel '{folder.Name}' open-prep render={tRender}ms capture={tCapture}ms total={sw.ElapsedMilliseconds}ms switch={wasVisible} pos=({Left:0},{Top:0})");
     }
 
-    /// <summary>Show the title-bar back arrow only when we're inside a nested folder.</summary>
-    private void UpdateBackButton() => BackButton.Visibility =
-        _navStack.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    /// <summary>Show the title-bar back arrow only when we're inside a nested folder,
+    /// and label it with the folder we'd return to (e.g. "Back to test").</summary>
+    private void UpdateBackButton()
+    {
+        if (_navStack.Count > 0)
+        {
+            BackButton.Visibility = Visibility.Visible;
+            BackButton.ToolTip = $"Back to {_navStack[^1]}";
+        }
+        else
+        {
+            BackButton.Visibility = Visibility.Collapsed;
+        }
+    }
 
     private void Back_Click(object sender, RoutedEventArgs e)
     {
@@ -220,23 +229,26 @@ public partial class ExpandedPanelWindow : Window
     /// <summary>Hide the panel but keep the window alive, on-screen and warm for the next open.</summary>
     public void HidePanel()
     {
-        if (!_realized) return;
+        if (!_realized || !_open) return;
         _open = false;
         _closeArmed = false;
         _navStack.Clear();   // closing resets the nested-navigation trail
         _armTimer?.Stop();
         _deactivateTimer?.Stop();
-
-        // Snap the content invisible. This is safe (no flash): the window stays on-screen and
-        // composed, so Opacity=0 paints within a frame; and it's the SAME (closing) folder, so even
-        // the one-frame lag just shows that folder a beat longer, never a wrong one. Then make it
-        // click-through so the transparent panel can't intercept desktop clicks.
-        Root.BeginAnimation(OpacityProperty, null);
-        OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-        OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-        Root.Opacity = 0;
-        SetClickThrough(true);
+        SetClickThrough(true);            // stop intercepting clicks immediately (fade is invisible to input)
         _lastHideMs = Environment.TickCount;
+
+        // Close animation: fade + shrink the content out (mirrors the open). The window stays on
+        // screen and composed, so this is just a content-opacity animation — no reveal, no flash.
+        OpenScale.CenterX = ActualWidth / 2;
+        OpenScale.CenterY = ActualHeight / 2;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var scale = new DoubleAnimation(1.0, 0.97, TimeSpan.FromMilliseconds(55)) { EasingFunction = ease };
+        OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, scale);
+        OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, scale);
+        var fade = new DoubleAnimation(Root.Opacity, 0.0, TimeSpan.FromMilliseconds(55));
+        fade.Completed += (_, _) => { if (!_open) { Root.BeginAnimation(OpacityProperty, null); Root.Opacity = 0; } };
+        Root.BeginAnimation(OpacityProperty, fade);
     }
 
     /// <summary>Keep our memory pages hot and the desktop cache current so opens stay fast.</summary>
@@ -657,18 +669,6 @@ public partial class ExpandedPanelWindow : Window
         // Fade the CONTENT in (not the window opacity — the window stays opaque; the reveal is the
         // DWM uncloak). Starting from Root.Opacity=0 guarantees no full-opacity first-frame flash.
         Root.BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(38)));
-    }
-
-    /// <summary>A gentle scale-up used when navigating into a nested subfolder (content already
-    /// swapped, stays fully opaque) — signals "going in" without a hard cut or a close/reopen.</summary>
-    private void PlayScalePop()
-    {
-        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        OpenScale.CenterX = ActualWidth / 2;
-        OpenScale.CenterY = ActualHeight / 2;
-        var scale = new DoubleAnimation(0.96, 1.0, TimeSpan.FromMilliseconds(120)) { EasingFunction = ease };
-        OpenScale.BeginAnimation(ScaleTransform.ScaleXProperty, scale);
-        OpenScale.BeginAnimation(ScaleTransform.ScaleYProperty, scale);
     }
 
     // ---- Paging ----

@@ -137,7 +137,7 @@
                 <Grid DockPanel.Dock="Top" Margin="0,2,0,14">
                     <Button x:Name="BackButton" Style="{StaticResource NavBackButton}"
                             HorizontalAlignment="Left" VerticalAlignment="Center"
-                            Visibility="Collapsed" Click="Back_Click" ToolTip="Back to parent folder">
+                            Visibility="Collapsed" Click="Back_Click" ToolTip="Back">
                         <!-- Curved "return" arrow (↩): a left-pointing head with a shaft that hooks
                              up on the right — clearly distinct from the thin page chevrons. -->
                         <Path Data="M 7,6 L 3.2,10 L 7,14 M 3.2,10 L 11,10 C 14.6,10 14.6,4.4 11,4.4"
