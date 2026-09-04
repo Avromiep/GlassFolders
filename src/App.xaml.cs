@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.15";
+    public const string AppVersion = "0.3.16";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -151,8 +151,6 @@ public partial class App : Application
         _panel = new ExpandedPanelWindow(_store);
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
             () => { try { _panel?.EnsureWarm(); } catch { } });
-
-        PrimeLauncher();  // warm GFOpen.exe's first-run extraction so a taskbar-pin open is fast too
 
         // Single-click on one of our desktop folder icons opens it (rest of desktop unchanged).
         _clickWatcher = new DesktopClickWatcher(
@@ -488,23 +486,6 @@ public partial class App : Application
                 (IntPtr)(80L * 1024 * 1024),    // keep ~80 MB resident (the hot open path)
                 (IntPtr)(1024L * 1024 * 1024),  // max is not enforced (flag below), just a ceiling
                 NativeMethods.QUOTA_LIMITS_HARDWS_MIN_ENABLE | NativeMethods.QUOTA_LIMITS_HARDWS_MAX_DISABLE);
-        }
-        catch { }
-    }
-
-    /// <summary>
-    /// Run GFOpen.exe once in the background (no args -> it does nothing and exits) to pay its
-    /// one-time single-file extraction now, so the first taskbar-pin / shortcut open of the session
-    /// is fast instead of eating that ~1-2s extraction cost.
-    /// </summary>
-    private static void PrimeLauncher()
-    {
-        try
-        {
-            var gf = System.IO.Path.Combine(AppContext.BaseDirectory, "GFOpen.exe");
-            if (!File.Exists(gf)) return;
-            var psi = new System.Diagnostics.ProcessStartInfo(gf) { UseShellExecute = false, CreateNoWindow = true };
-            System.Diagnostics.Process.Start(psi);
         }
         catch { }
     }
