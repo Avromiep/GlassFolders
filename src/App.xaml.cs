@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.23";
+    public const string AppVersion = "0.3.24";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -721,12 +721,47 @@ public partial class App : Application
             Visible = true,
             Text = AppName,
         };
-        var menu = new WinForms.ContextMenuStrip();
-        menu.Items.Add($"Open {AppName}", null, (_, _) => Dispatcher.Invoke(ShowManager));
-        menu.Items.Add(new WinForms.ToolStripSeparator());
-        menu.Items.Add("Exit", null, (_, _) => Dispatcher.Invoke(ExitApp));
-        _tray.ContextMenuStrip = menu;
+        // Right-click shows our own rounded dark-glass WPF menu instead of the default gray
+        // Win32 ContextMenuStrip; left double-click opens the manager.
+        _tray.MouseUp += (_, e) =>
+        {
+            if (e.Button == WinForms.MouseButtons.Right) Dispatcher.Invoke(ShowTrayMenu);
+        };
         _tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowManager);
+    }
+
+    private System.Windows.Controls.ContextMenu? _trayMenu;
+
+    /// <summary>Opens the styled WPF tray menu at the cursor. Because we're a background tray
+    /// app with no foreground window, we push the menu's popup to the foreground once it opens
+    /// so it dismisses correctly on an outside click (what WinForms did for us internally).</summary>
+    private void ShowTrayMenu()
+    {
+        if (_trayMenu == null)
+        {
+            _trayMenu = new System.Windows.Controls.ContextMenu
+            {
+                Style = (Style)Resources["TrayMenu"],
+            };
+            var open = new System.Windows.Controls.MenuItem
+            { Header = $"Open {AppName}", Style = (Style)Resources["TrayMenuItem"] };
+            open.Click += (_, _) => ShowManager();
+            var exit = new System.Windows.Controls.MenuItem
+            { Header = "Exit", Style = (Style)Resources["TrayMenuItem"] };
+            exit.Click += (_, _) => ExitApp();
+            _trayMenu.Items.Add(open);
+            _trayMenu.Items.Add(new System.Windows.Controls.Separator
+            { Style = (Style)Resources["TraySeparator"] });
+            _trayMenu.Items.Add(exit);
+            _trayMenu.Opened += (_, _) =>
+            {
+                if (System.Windows.PresentationSource.FromVisual(_trayMenu)
+                    is System.Windows.Interop.HwndSource src)
+                    NativeMethods.SetForegroundWindow(src.Handle);
+            };
+        }
+        _trayMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+        _trayMenu.IsOpen = true;
     }
 
     /// <summary>The frost app icon, taken from the exe's own embedded icon (ApplicationIcon).</summary>

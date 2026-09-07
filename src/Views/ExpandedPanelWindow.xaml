@@ -75,6 +75,30 @@
             </Setter>
         </Style>
 
+        <!-- Rounded dark-glass hint (replaces the default white tooltip box). Shows instantly
+             where set via ToolTipService.InitialShowDelay="0" on the owning control. -->
+        <Style TargetType="ToolTip">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="HasDropShadow" Value="False"/>
+            <Setter Property="Placement" Value="Bottom"/>
+            <Setter Property="VerticalOffset" Value="4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border CornerRadius="8" Background="#F01C2026"
+                                BorderBrush="#33FFFFFF" BorderThickness="1" Padding="10,6">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="14" ShadowDepth="3" Direction="270"
+                                                  Opacity="0.38" Color="#000000"/>
+                            </Border.Effect>
+                            <TextBlock Text="{TemplateBinding Content}" Foreground="#EEF3F6"
+                                       FontSize="12.5" FontWeight="Medium"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- App tile button inside the grid -->
         <Style x:Key="AppTile" TargetType="Button">
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -137,7 +161,9 @@
                 <Grid DockPanel.Dock="Top" Margin="0,2,0,14">
                     <Button x:Name="BackButton" Style="{StaticResource NavBackButton}"
                             HorizontalAlignment="Left" VerticalAlignment="Center"
-                            Visibility="Collapsed" Click="Back_Click" ToolTip="Back">
+                            Visibility="Collapsed" Click="Back_Click" ToolTip="Back"
+                            ToolTipService.InitialShowDelay="0" ToolTipService.BetweenShowDelay="0"
+                            ToolTipService.ShowDuration="20000" ToolTipService.Placement="Bottom">
                         <!-- Curved "return" arrow (↩): a left-pointing head with a shaft that hooks
                              up on the right — clearly distinct from the thin page chevrons. -->
                         <Path Data="M 7,6 L 3.2,10 L 7,14 M 3.2,10 L 11,10 C 14.6,10 14.6,4.4 11,4.4"

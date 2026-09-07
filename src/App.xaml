@@ -3,5 +3,68 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
+        <!-- Modern rounded, dark-glass tray context menu (replaces the default gray Win32 menu). -->
+        <Style x:Key="TrayMenu" TargetType="ContextMenu">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="HasDropShadow" Value="True"/>
+            <Setter Property="Foreground" Value="#EEF3F6"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <!-- Outer margin leaves room for the drop shadow so it isn't clipped. -->
+                        <Grid Margin="9">
+                            <Border CornerRadius="12" Background="#F01C2026"
+                                    BorderBrush="#2BFFFFFF" BorderThickness="1"
+                                    Padding="5" MinWidth="184">
+                                <Border.Effect>
+                                    <DropShadowEffect BlurRadius="20" ShadowDepth="5" Direction="270"
+                                                      Opacity="0.42" Color="#000000"/>
+                                </Border.Effect>
+                                <StackPanel IsItemsHost="True"
+                                            KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="TrayMenuItem" TargetType="MenuItem">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="Foreground" Value="#EAF0F3"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="12,9"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="hl" CornerRadius="8" Background="Transparent"
+                                Padding="{TemplateBinding Padding}" Margin="1,1">
+                            <ContentPresenter ContentSource="Header" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="hl" Property="Background" Value="#2CFFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="TraySeparator" TargetType="Separator">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Separator">
+                        <Border Height="1" Margin="9,4" Background="#20FFFFFF"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Application.Resources>
 </Application>
