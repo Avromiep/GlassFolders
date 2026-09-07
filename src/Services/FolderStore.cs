@@ -148,12 +148,20 @@ public sealed class FolderStore
     }
 
     /// <summary>Adds a shortcut with an explicit display name pointing at a resolved target
-    /// (used by folder import, where the .lnk should keep its original name).</summary>
-    public void AddResolved(FolderModel folder, string targetPath, string displayName)
+    /// (used by folder import, where the .lnk should keep its original name). Optional
+    /// <paramref name="arguments"/> and <paramref name="iconPath"/> are preserved so that
+    /// e.g. per-profile browser shortcuts keep both their profile switch and their distinct
+    /// icon after an export/import round-trip.</summary>
+    public void AddResolved(FolderModel folder, string targetPath, string displayName,
+        string? arguments = null, string? iconPath = null, int iconIndex = 0)
     {
         string destLnk = UniqueLnkPath(folder.DirectoryPath, displayName);
-        ShellLink.Create(destLnk, targetPath, description: displayName,
-            workingDirectory: Path.GetDirectoryName(targetPath));
+        // Only pass an icon the target machine can actually resolve; otherwise let the shell
+        // fall back to the target's own icon rather than baking in a dead path.
+        string? icon = !string.IsNullOrEmpty(iconPath) && File.Exists(iconPath) ? iconPath : null;
+        ShellLink.Create(destLnk, targetPath, arguments: arguments,
+            iconPath: icon, iconIndex: icon != null ? iconIndex : 0,
+            description: displayName, workingDirectory: Path.GetDirectoryName(targetPath));
         folder.Items.Add(new ShortcutItem { LnkPath = destLnk });
         SaveOrder(folder);
     }

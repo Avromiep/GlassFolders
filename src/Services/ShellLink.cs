@@ -85,6 +85,26 @@ public static class ShellLink
         catch { return null; }
     }
 
+    /// <summary>Reads a .lnk's custom icon location (path + index), or (null,0) if none is set.
+    /// This is how per-profile browser shortcuts (Brave/Chrome "Google Profile.ico") carry their
+    /// distinct icon — it must be preserved across export/import or every profile looks the same.</summary>
+    public static (string? path, int index) ReadIconLocation(string lnkPath)
+    {
+        try
+        {
+            var link = (IShellLinkW)new CShellLink();
+            var file = (IPersistFile)link;
+            file.Load(lnkPath, 0);
+            var sb = new System.Text.StringBuilder(1024);
+            link.GetIconLocation(sb, sb.Capacity, out int index);
+            Marshal.ReleaseComObject(file);
+            Marshal.ReleaseComObject(link);
+            var s = sb.ToString();
+            return string.IsNullOrWhiteSpace(s) ? (null, 0) : (s, index);
+        }
+        catch { return (null, 0); }
+    }
+
     /// <summary>Resolves the target path a .lnk points at (best effort).</summary>
     public static string? ResolveTarget(string lnkPath)
     {

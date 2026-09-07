@@ -18,6 +18,12 @@ public static class FolderIO
         public string name { get; set; } = "";
         public string? target { get; set; }
         public string? file { get; set; }
+        // Preserve the launch arguments (e.g. Brave/Chrome --profile-directory="Profile 1")
+        // and the custom icon (e.g. per-profile "Google Profile.ico") so imported shortcuts
+        // keep their distinct identity instead of collapsing to the bare app + generic icon.
+        public string? args { get; set; }
+        public string? icon { get; set; }
+        public int iconIndex { get; set; }
     }
 
     private sealed class FolderDto
@@ -46,11 +52,17 @@ public static class FolderIO
             foreach (var item in f.Items)
             {
                 var target = ShellLink.ResolveTarget(item.LnkPath);
+                var (iconPath, iconIndex) = ShellLink.ReadIconLocation(item.LnkPath);
                 dto.apps.Add(new AppDto
                 {
                     name = item.DisplayName,
                     target = target,
                     file = target != null ? Path.GetFileName(target) : null,
+                    args = ShellLink.ReadArguments(item.LnkPath),
+                    // Tokenize per-user prefixes so an icon under this user's AppData still
+                    // resolves under a different username on the importing machine.
+                    icon = Tokenize(iconPath),
+                    iconIndex = iconIndex,
                 });
             }
             list.Add(dto);
@@ -75,7 +87,12 @@ public static class FolderIO
             foreach (var app in dto.apps)
             {
                 var resolved = Resolve(app, byFile, byName);
-                if (resolved != null) { store.AddResolved(folder, resolved, app.name); added++; }
+                if (resolved != null)
+                {
+                    store.AddResolved(folder, resolved, app.name,
+                        arguments: app.args, iconPath: Expand(app.icon), iconIndex: app.iconIndex);
+                    added++;
+                }
                 else skipped++;
             }
             store.RegenerateAndPublish(folder);
@@ -92,6 +109,38 @@ public static class FolderIO
         if (!string.IsNullOrEmpty(app.name) && byName.TryGetValue(app.name, out var q)) return q;
         return null;
     }
+
+    // Known per-user / per-machine roots, longest first so the most specific prefix wins
+    // (LocalApplicationData sits under UserProfile, so it must be tested before it).
+    private static readonly (string token, Environment.SpecialFolder folder)[] PathTokens =
+    {
+        ("%LOCALAPPDATA%", Environment.SpecialFolder.LocalApplicationData),
+        ("%APPDATA%",      Environment.SpecialFolder.ApplicationData),
+        ("%ProgramFiles(x86)%", Environment.SpecialFolder.ProgramFilesX86),
+        ("%PROGRAMFILES%", Environment.SpecialFolder.ProgramFiles),
+        ("%USERPROFILE%",  Environment.SpecialFolder.UserProfile),
+    };
+
+    /// <summary>Replaces this machine's user/program roots in an absolute path with portable
+    /// tokens (e.g. C:\Users\me\AppData\Local\… → %LOCALAPPDATA%\…) so the same icon resolves
+    /// under a different username on the importing machine.</summary>
+    private static string? Tokenize(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return path;
+        foreach (var (token, folder) in PathTokens)
+        {
+            var root = Environment.GetFolderPath(folder);
+            if (!string.IsNullOrEmpty(root) &&
+                path.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                return token + path.Substring(root.Length);
+        }
+        return path;
+    }
+
+    /// <summary>Reverse of <see cref="Tokenize"/>: expands portable tokens back to this
+    /// machine's absolute paths on import.</summary>
+    private static string? Expand(string? path)
+        => string.IsNullOrEmpty(path) ? path : Environment.ExpandEnvironmentVariables(path);
 
     private static string UniqueName(FolderStore store, string name)
     {
