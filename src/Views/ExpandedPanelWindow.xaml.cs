@@ -244,6 +244,13 @@ public partial class ExpandedPanelWindow : Window
         BackHint.Visibility = Visibility.Visible;
         BackHint.UpdateLayout();       // settle size/position before mapping the glass slice
         UpdateBackHintGlass();
+
+        // Clip the pill to its ROUNDED shape so the blurred glass layer can't bleed into the
+        // square corners (that stray blur read as an outline/shadow around the corners). A plain
+        // ClipToBounds only clips to a rectangle, which is what left the corner artifact.
+        if (BackHintPill.ActualWidth > 0 && BackHintPill.ActualHeight > 0)
+            BackHintPill.Clip = new RectangleGeometry(
+                new Rect(0, 0, BackHintPill.ActualWidth, BackHintPill.ActualHeight), 9, 9);
     }
 
     private void HideBackHint()

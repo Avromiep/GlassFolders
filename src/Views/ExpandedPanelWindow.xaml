@@ -243,7 +243,7 @@
              white veil), just blurred extra (BackHintBlur, set in code). Shown on back-button hover. -->
         <Grid x:Name="BackHint" Visibility="Collapsed" IsHitTestVisible="False"
               HorizontalAlignment="Left" VerticalAlignment="Top" Margin="22,50,0,0">
-            <Border x:Name="BackHintPill" CornerRadius="9" BorderThickness="0" ClipToBounds="True">
+            <Border x:Name="BackHintPill" CornerRadius="9" BorderThickness="0">
                 <Border.Effect>
                     <DropShadowEffect BlurRadius="16" ShadowDepth="4" Direction="270"
                                       Opacity="0.32" Color="#000000"/>
