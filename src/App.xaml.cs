@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.24";
+    public const string AppVersion = "0.3.25";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -535,7 +535,7 @@ public partial class App : Application
             try
             {
                 foreach (var f in _store.ListFolders())
-                    ImageHelper.Prewarm(f.FirstPagePaths(), 64);
+                    ImageHelper.Prewarm(f.FirstPagePaths(), 128);
             }
             catch { }
         });

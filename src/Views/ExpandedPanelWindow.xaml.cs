@@ -40,6 +40,10 @@ public partial class ExpandedPanelWindow : Window
     private System.Drawing.Rectangle _bgRect;
     private int _lastHideMs = -100000;
 
+    // The panel's current blurred-wallpaper bitmap (same one painted as Frost.Background). The
+    // back-button hint reuses a cropped slice of it so its frost matches the folder exactly.
+    private System.Windows.Media.Imaging.BitmapSource? _frostBmp;
+
     /// <summary>True while the panel is actually shown to the user.</summary>
     public bool IsOpen => _open;
 
@@ -197,24 +201,18 @@ public partial class ExpandedPanelWindow : Window
         Services.Diag.Log($"panel '{folder.Name}' open-prep render={tRender}ms capture={tCapture}ms total={sw.ElapsedMilliseconds}ms switch={wasVisible} pos=({Left:0},{Top:0})");
     }
 
-    /// <summary>Show the title-bar back arrow only when we're inside a nested folder,
-    /// and label it with the folder we'd return to (e.g. "Back to test").</summary>
+    /// <summary>Show the title-bar back arrow only when we're inside a nested folder.
+    /// The label ("Back to &lt;folder&gt;") is shown as a frosted hint on hover, not a tooltip.</summary>
     private void UpdateBackButton()
     {
-        if (_navStack.Count > 0)
-        {
-            BackButton.Visibility = Visibility.Visible;
-            BackButton.ToolTip = $"Back to {_navStack[^1]}";
-        }
-        else
-        {
-            BackButton.Visibility = Visibility.Collapsed;
-        }
+        BackButton.Visibility = _navStack.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (_navStack.Count == 0) HideBackHint();
     }
 
     private void Back_Click(object sender, RoutedEventArgs e)
     {
         if (_navStack.Count == 0) return;
+        HideBackHint();
         var parentName = _navStack[^1];
         _navStack.RemoveAt(_navStack.Count - 1);
         var parent = _store.FindByName(parentName);
@@ -226,6 +224,62 @@ public partial class ExpandedPanelWindow : Window
         else UpdateBackButton();
     }
 
+    private void BackButton_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e) => ShowBackHint();
+    private void BackButton_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e) => HideBackHint();
+
+    /// <summary>Shows the frosted "Back to &lt;folder&gt;" hint below the back arrow — the same glass
+    /// material as the folder (a cropped slice of its own blurred wallpaper + matching veil), blurred
+    /// extra. If the folder's blur is already strong (&gt;50%), the extra blur is capped so it doesn't
+    /// turn to mush rather than blindly doubling.</summary>
+    private void ShowBackHint()
+    {
+        if (_navStack.Count == 0) return;
+        BackHintText.Text = $"Back to {_navStack[^1]}";
+        BackHintTint.Opacity = Math.Min(1.0, TintLayer.Opacity + 0.05); // match the folder, a hair more
+
+        // The frost bitmap is already blurred once at _blurFactor; add a comparable Gaussian pass to
+        // ~double it. Cap at 26 so a high-frostiness folder (factor can reach ~34) stays legible.
+        BackHintBlur.Radius = Math.Min(_blurFactor, 26);
+
+        BackHint.Visibility = Visibility.Visible;
+        BackHint.UpdateLayout();       // settle size/position before mapping the glass slice
+        UpdateBackHintGlass();
+    }
+
+    private void HideBackHint()
+    {
+        if (BackHint.Visibility != Visibility.Collapsed) BackHint.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>Paints the hint's backdrop with the exact slice of the panel's blurred wallpaper that
+    /// sits behind it (mapped by a relative Viewbox), so it lines up with — and looks like — the
+    /// folder's own frost.</summary>
+    private void UpdateBackHintGlass()
+    {
+        if (_frostBmp == null || Frost.ActualWidth <= 0 || Frost.ActualHeight <= 0)
+        {
+            BackHintGlass.Background = null;
+            return;
+        }
+        try
+        {
+            var r = BackHint.TransformToVisual(Frost)
+                .TransformBounds(new Rect(0, 0, BackHint.ActualWidth, BackHint.ActualHeight));
+            var vb = new Rect(
+                Math.Clamp(r.X / Frost.ActualWidth, 0, 1),
+                Math.Clamp(r.Y / Frost.ActualHeight, 0, 1),
+                Math.Clamp(r.Width / Frost.ActualWidth, 0, 1),
+                Math.Clamp(r.Height / Frost.ActualHeight, 0, 1));
+            BackHintGlass.Background = new ImageBrush(_frostBmp)
+            {
+                Viewbox = vb,
+                ViewboxUnits = BrushMappingMode.RelativeToBoundingBox,
+                Stretch = Stretch.Fill,
+            };
+        }
+        catch { BackHintGlass.Background = null; }
+    }
+
     /// <summary>Hide the panel but keep the window alive, on-screen and warm for the next open.</summary>
     public void HidePanel()
     {
@@ -233,6 +287,7 @@ public partial class ExpandedPanelWindow : Window
         _open = false;
         _closeArmed = false;
         _navStack.Clear();   // closing resets the nested-navigation trail
+        HideBackHint();
         _armTimer?.Stop();
         _deactivateTimer?.Stop();
         SetClickThrough(true);            // stop intercepting clicks immediately (fade is invisible to input)
@@ -553,7 +608,8 @@ public partial class ExpandedPanelWindow : Window
                 g2.DrawImage(blurredBig, new System.Drawing.Rectangle(0, 0, w, h),
                     new System.Drawing.Rectangle(pad, pad, w, h), System.Drawing.GraphicsUnit.Pixel);
 
-            Frost.Background = new ImageBrush(FastBitmapSource(cropped)) { Stretch = Stretch.Fill };
+            _frostBmp = FastBitmapSource(cropped);
+            Frost.Background = new ImageBrush(_frostBmp) { Stretch = Stretch.Fill };
             _bgRect = newRect;
         }
         catch { /* leave the transparent background; tint + rim still read as glass */ }
@@ -705,7 +761,12 @@ public partial class ExpandedPanelWindow : Window
             Height = 60,
             Source = IconForItem(item),
             Stretch = Stretch.Uniform,
+            SnapsToDevicePixels = true,
         };
+        // Downscale the 128px source with the high-quality (Fant) filter and align to device
+        // pixels so icon edges stay crisp instead of soft.
+        RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+        RenderOptions.SetEdgeMode(image, EdgeMode.Unspecified);
         var label = new TextBlock
         {
             Text = item.DisplayName,
@@ -718,15 +779,17 @@ public partial class ExpandedPanelWindow : Window
             Margin = new Thickness(0, 5, 0, 0),
             MaxHeight = 30,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            // White halo keeps labels legible over clear glass on any wallpaper.
+            // A tight white halo keeps labels legible over clear glass without softening the
+            // glyph edges the way the old wide (6px) blur did.
             Effect = new System.Windows.Media.Effects.DropShadowEffect
             {
                 Color = Colors.White,
-                BlurRadius = 6,
+                BlurRadius = 3,
                 ShadowDepth = 0,
-                Opacity = 0.85,
+                Opacity = 1.0,
             },
         };
+        System.Windows.Media.TextOptions.SetTextFormattingMode(label, System.Windows.Media.TextFormattingMode.Display);
         var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
         stack.Children.Add(image);
         stack.Children.Add(label);
@@ -735,7 +798,8 @@ public partial class ExpandedPanelWindow : Window
         {
             Style = (Style)Resources["AppTile"],
             Content = stack,
-            ToolTip = item.DisplayName,
+            // No ToolTip: the label under the icon already shows the name, and a hint popping up
+            // on every tile (including nested-folder tiles) was unwanted noise.
             Tag = item, // used by drag-out to identify which app is being dragged
         };
         btn.Click += (_, _) => Launch(item);
@@ -893,10 +957,12 @@ public partial class ExpandedPanelWindow : Window
         var name = NestedFolderNameOf(item.LnkPath);
         if (name != null && _store.FindByName(name) is FolderModel nf)
         {
-            try { return ImageHelper.ToImageSource(IconComposer.RenderPreview(nf.FirstPagePaths(), 64)); }
+            // Render at 128 (tiles display at 60 DIP, up to ~90px on a 150% display) so the
+            // icon is downscaled rather than upscaled — downscaling stays crisp, upscaling blurs.
+            try { return ImageHelper.ToImageSource(IconComposer.RenderPreview(nf.FirstPagePaths(), 128)); }
             catch { }
         }
-        return ImageHelper.LoadIcon(item.LnkPath, 64);
+        return ImageHelper.LoadIcon(item.LnkPath, 128);
     }
 
     /// <summary>Extracts the folder name from a `--open "Name"` (or `--open Name`) argument string.</summary>
