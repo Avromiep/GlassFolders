@@ -182,27 +182,19 @@
             </Setter>
         </Style>
 
-        <!-- App tiles sit on frosted glass -> dark text + white halo, like the real folder -->
+        <!-- App tiles sit on frosted glass; dark text, no white halo (the halo made labels fuzzy) -->
         <DataTemplate x:Key="GridTile">
             <StackPanel Width="108">
                 <Image Source="{Binding Icon}" Width="56" Height="56" HorizontalAlignment="Center"/>
                 <TextBlock Text="{Binding Name}" Foreground="#15181D" FontSize="12"
                            TextAlignment="Center" TextWrapping="Wrap" MaxHeight="32"
-                           Margin="0,6,0,0" TextTrimming="CharacterEllipsis">
-                    <TextBlock.Effect>
-                        <DropShadowEffect BlurRadius="6" ShadowDepth="0" Opacity="0.9" Color="#FFFFFF"/>
-                    </TextBlock.Effect>
-                </TextBlock>
+                           Margin="0,6,0,0" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
         </DataTemplate>
         <DataTemplate x:Key="ListRow">
             <DockPanel MinWidth="360">
                 <Image Source="{Binding Icon}" Width="34" Height="34" Margin="4,0,14,0"/>
-                <TextBlock Text="{Binding Name}" Foreground="#15181D" VerticalAlignment="Center" FontSize="13.5">
-                    <TextBlock.Effect>
-                        <DropShadowEffect BlurRadius="6" ShadowDepth="0" Opacity="0.85" Color="#FFFFFF"/>
-                    </TextBlock.Effect>
-                </TextBlock>
+                <TextBlock Text="{Binding Name}" Foreground="#15181D" VerticalAlignment="Center" FontSize="13.5"/>
             </DockPanel>
         </DataTemplate>
 

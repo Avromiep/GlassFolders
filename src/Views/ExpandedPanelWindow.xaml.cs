@@ -786,15 +786,8 @@ public partial class ExpandedPanelWindow : Window
             Margin = new Thickness(0, 5, 0, 0),
             MaxHeight = 30,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            // A tight white halo keeps labels legible over clear glass without softening the
-            // glyph edges the way the old wide (6px) blur did.
-            Effect = new System.Windows.Media.Effects.DropShadowEffect
-            {
-                Color = Colors.White,
-                BlurRadius = 3,
-                ShadowDepth = 0,
-                Opacity = 1.0,
-            },
+            // No glow — a white halo made the dark text look fuzzy. The frosted white veil behind
+            // the tiles already gives enough contrast, so plain dark text stays crisp and clean.
         };
         System.Windows.Media.TextOptions.SetTextFormattingMode(label, System.Windows.Media.TextFormattingMode.Display);
         var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
