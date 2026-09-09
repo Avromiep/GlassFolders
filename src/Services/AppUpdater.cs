@@ -11,8 +11,12 @@ namespace GlassFolders.Services;
 /// </summary>
 public static class AppUpdater
 {
-    /// <summary>Downloads the setup to a temp file, reporting 0..100 percent.</summary>
-    public static async Task<string> DownloadAsync(string setupUrl, IProgress<int> progress, CancellationToken ct)
+    /// <summary>Downloads the setup to a temp file, reporting 0..100 percent. When
+    /// <paramref name="expectedSha256"/> is supplied (GitHub's published asset digest), the
+    /// finished file is verified against it and rejected on mismatch, so a corrupted or tampered
+    /// download never runs.</summary>
+    public static async Task<string> DownloadAsync(string setupUrl, IProgress<int> progress,
+        CancellationToken ct, string? expectedSha256 = null)
     {
         var dest = Path.Combine(Path.GetTempPath(), "GlassFolders-Setup.exe");
 
@@ -39,6 +43,19 @@ public static class AppUpdater
 
         if (new FileInfo(dest).Length < 1_000_000) // sanity: a real setup is tens of MB
             throw new IOException("The downloaded installer looks incomplete.");
+
+        // Integrity check: the file must match the SHA-256 GitHub published for the asset.
+        if (!string.IsNullOrEmpty(expectedSha256))
+        {
+            string actual;
+            await using (var fs = File.OpenRead(dest))
+                actual = Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(fs, ct));
+            if (!actual.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                try { File.Delete(dest); } catch { }
+                throw new IOException("The downloaded installer failed its integrity check and was discarded.");
+            }
+        }
         return dest;
     }
 

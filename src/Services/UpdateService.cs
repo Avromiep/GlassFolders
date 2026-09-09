@@ -10,6 +10,11 @@ public sealed record UpdateResult(UpdateStatus Status, string? LatestVersion, st
 {
     /// <summary>Direct download URL of the GlassFolders-Setup.exe asset (for in-app install).</summary>
     public string? SetupUrl { get; init; }
+    /// <summary>The exact asset filename we matched (so we install the intended one).</summary>
+    public string? SetupName { get; init; }
+    /// <summary>SHA-256 (hex) GitHub reports for that asset, if any — verified after download
+    /// before the installer runs. Null when the release predates GitHub asset digests.</summary>
+    public string? SetupSha256 { get; init; }
 }
 
 /// <summary>
@@ -47,16 +52,24 @@ public static class UpdateService
             string htmlUrl = root.TryGetProperty("html_url", out var h) ? h.GetString() ?? "" : "";
 
             // Find the installer asset so we can download + install it in-app (no browser).
-            string? setupUrl = null;
+            // Prefer the exact expected name; fall back to any *Setup.exe. Capture GitHub's
+            // published SHA-256 digest so the download can be integrity-checked before running.
+            const string ExpectedAsset = "GlassFolders-Setup.exe";
+            string? setupUrl = null, setupName = null, setupSha = null;
             if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
                 foreach (var a in assets.EnumerateArray())
                 {
                     var name = a.TryGetProperty("name", out var nm) ? nm.GetString() ?? "" : "";
-                    if (name.EndsWith("Setup.exe", StringComparison.OrdinalIgnoreCase))
-                    {
-                        setupUrl = a.TryGetProperty("browser_download_url", out var u) ? u.GetString() : null;
-                        break;
-                    }
+                    bool exact = name.Equals(ExpectedAsset, StringComparison.OrdinalIgnoreCase);
+                    if (!exact && (setupUrl != null || !name.EndsWith("Setup.exe", StringComparison.OrdinalIgnoreCase)))
+                        continue;
+                    setupUrl = a.TryGetProperty("browser_download_url", out var u) ? u.GetString() : null;
+                    setupName = name;
+                    // GitHub reports e.g. "sha256:abc123…"; keep just the hex.
+                    setupSha = a.TryGetProperty("digest", out var dg) && dg.GetString() is string d
+                        && d.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)
+                        ? d["sha256:".Length..] : null;
+                    if (exact) break; // exact name wins outright
                 }
 
             var latest = ParseVersion(tag);
@@ -64,7 +77,8 @@ public static class UpdateService
             if (latest == null)
                 return new(UpdateStatus.Error, tag, htmlUrl, "Couldn't parse the release version.");
             if (current != null && latest > current)
-                return new(UpdateStatus.UpdateAvailable, tag, htmlUrl, null) { SetupUrl = setupUrl };
+                return new(UpdateStatus.UpdateAvailable, tag, htmlUrl, null)
+                { SetupUrl = setupUrl, SetupName = setupName, SetupSha256 = setupSha };
             return new(UpdateStatus.UpToDate, tag, htmlUrl, null);
         }
         catch (Exception ex)

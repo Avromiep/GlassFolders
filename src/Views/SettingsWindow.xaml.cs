@@ -12,6 +12,7 @@ public partial class SettingsWindow : Window
     private readonly Action _onFoldersChanged;
     private string? _downloadUrl;
     private string? _setupUrl;
+    private string? _setupSha256;
     private bool _loaded;
 
     public SettingsWindow(FolderStore store, Action onFoldersChanged)
@@ -75,6 +76,7 @@ public partial class SettingsWindow : Window
                 UpdateStatusText.Text = $"Update available: {r.LatestVersion}.";
                 _downloadUrl = r.Url;
                 _setupUrl = r.SetupUrl;
+                _setupSha256 = r.SetupSha256;
                 DownloadButton.Content = _setupUrl != null ? "Download and install" : "Open download page";
                 DownloadButton.Visibility = Visibility.Visible;
                 break;
@@ -102,7 +104,8 @@ public partial class SettingsWindow : Window
         var progress = new Progress<int>(p => UpdateStatusText.Text = $"Downloading update… {p}%");
         try
         {
-            var setup = await AppUpdater.DownloadAsync(_setupUrl, progress, System.Threading.CancellationToken.None);
+            var setup = await AppUpdater.DownloadAsync(_setupUrl, progress,
+                System.Threading.CancellationToken.None, _setupSha256);
             UpdateStatusText.Text = "Installing… Glass Folders will restart.";
             AppUpdater.RunInstaller(setup);
             await System.Threading.Tasks.Task.Delay(700); // let the installer start before we release the files

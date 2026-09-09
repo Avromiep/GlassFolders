@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.29";
+    public const string AppVersion = "0.3.30";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -67,7 +67,8 @@ public partial class App : Application
                     if (r.SetupUrl != null)
                     {
                         var p = new Progress<int>(_ => { });
-                        var f = await Services.AppUpdater.DownloadAsync(r.SetupUrl, p, System.Threading.CancellationToken.None);
+                        var f = await Services.AppUpdater.DownloadAsync(r.SetupUrl, p, System.Threading.CancellationToken.None, r.SetupSha256);
+                        sb.AppendLine($"sha256 expected={r.SetupSha256 ?? "<none>"} name={r.SetupName}");
                         sb.AppendLine($"downloaded={f} bytes={new System.IO.FileInfo(f).Length}");
                     }
                 }

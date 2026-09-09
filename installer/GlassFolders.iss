@@ -86,16 +86,42 @@ begin
   Result := '';
 end;
 
+{ Reads a shortcut's target path via WScript.Shell (no fragile .lnk byte parsing). }
+function ShortcutTarget(lnk: String): String;
+var sh: Variant;
+begin
+  Result := '';
+  try
+    sh := CreateOleObject('WScript.Shell');
+    Result := sh.CreateShortcut(lnk).TargetPath;
+  except
+  end;
+end;
+
+{ Only shortcuts that actually point at our own exe/launcher — never a same-named one the user
+  made themselves. }
+function IsOurShortcut(lnk: String): Boolean;
+var tgt: String;
+begin
+  tgt := Lowercase(ShortcutTarget(lnk));
+  Result := (Pos('\gfopen.exe', tgt) > 0) or (Pos('\glassfolders.exe', tgt) > 0);
+end;
+
+procedure DeleteIfOurs(lnk: String);
+begin
+  if FileExists(lnk) and IsOurShortcut(lnk) then
+    DeleteFile(lnk);
+end;
+
 procedure RemoveDesktopShortcuts(dataDir: String);
 var
   FindRec: TFindRec;
-  fp: String;
 begin
   { The app's own manager launcher (and the legacy one from before the rename). }
-  DeleteFile(ExpandConstant('{userdesktop}\Glass Folders.lnk'));
-  DeleteFile(ExpandConstant('{userdesktop}\Liquid Folders.lnk'));
+  DeleteIfOurs(ExpandConstant('{userdesktop}\Glass Folders.lnk'));
+  DeleteIfOurs(ExpandConstant('{userdesktop}\Liquid Folders.lnk'));
 
-  { Each folder places a <Name>.lnk on the desktop; remove those too. }
+  { Each folder places a <Name>.lnk on the desktop; remove those too — but only ours. }
   if DirExists(dataDir + '\Folders') then
   begin
     if FindFirst(dataDir + '\Folders\*', FindRec) then
@@ -104,11 +130,7 @@ begin
         repeat
           if (FindRec.Attributes and 16 <> 0)          { FILE_ATTRIBUTE_DIRECTORY }
              and (FindRec.Name <> '.') and (FindRec.Name <> '..') then
-          begin
-            fp := ExpandConstant('{userdesktop}\') + FindRec.Name + '.lnk';
-            if FileExists(fp) then
-              DeleteFile(fp);
-          end;
+            DeleteIfOurs(ExpandConstant('{userdesktop}\') + FindRec.Name + '.lnk');
         until not FindNext(FindRec);
       finally
         FindClose(FindRec);
