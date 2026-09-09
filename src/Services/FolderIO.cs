@@ -24,6 +24,10 @@ public static class FolderIO
         public string? args { get; set; }
         public string? icon { get; set; }
         public int iconIndex { get; set; }
+        // For a nested-folder tile: the child folder's name. Recreated against the local launcher
+        // on import instead of a machine-specific path to GFOpen.exe (which would be "not installed"
+        // on another PC and get dropped).
+        public string? nested { get; set; }
     }
 
     private sealed class FolderDto
@@ -51,6 +55,13 @@ public static class FolderIO
             };
             foreach (var item in f.Items)
             {
+                // A nested-folder tile is exported as a folder reference, not a path to our exe.
+                var nested = FolderStore.NestedFolderName(item.LnkPath);
+                if (nested != null)
+                {
+                    dto.apps.Add(new AppDto { name = item.DisplayName, nested = nested });
+                    continue;
+                }
                 var target = ShellLink.ResolveTarget(item.LnkPath);
                 var (iconPath, iconIndex) = ShellLink.ReadIconLocation(item.LnkPath);
                 dto.apps.Add(new AppDto
@@ -86,6 +97,13 @@ public static class FolderIO
 
             foreach (var app in dto.apps)
             {
+                // Nested-folder tile: re-link to this machine's launcher by folder name.
+                if (!string.IsNullOrEmpty(app.nested))
+                {
+                    store.AddNestedFolderRef(folder, app.nested, app.name);
+                    added++;
+                    continue;
+                }
                 var resolved = Resolve(app, byFile, byName);
                 if (resolved != null)
                 {

@@ -370,7 +370,13 @@ public partial class ManagerWindow : Window
         if (_current == null) return;
         var name = ModernDialogWindow.Prompt(this, "Rename folder", "Enter a new name:", _current.Name);
         if (string.IsNullOrWhiteSpace(name) || name == _current.Name) return;
-        _store.RenameFolder(_current, name);
+        try { _store.RenameFolder(_current, name); }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(this, ex.Message, "Rename folder",
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+            return;
+        }
         ReloadFolders(FolderStore.Sanitize(name));
     }
 
@@ -396,10 +402,25 @@ public partial class ManagerWindow : Window
             Filter = "Programs & shortcuts (*.exe;*.lnk)|*.exe;*.lnk|All files (*.*)|*.*",
         };
         if (dlg.ShowDialog(this) != true) return;
-        foreach (var f in dlg.FileNames) try { _store.AddShortcut(_current, f); } catch { }
+        AddFiles(dlg.FileNames);
+    }
+
+    /// <summary>Adds files to the current folder, reporting any that couldn't be added instead of
+    /// swallowing the failure silently.</summary>
+    private void AddFiles(IEnumerable<string> files)
+    {
+        if (_current == null) return;
+        var failed = new List<string>();
+        foreach (var f in files)
+            try { _store.AddShortcut(_current, f); }
+            catch { failed.Add(System.IO.Path.GetFileName(f)); }
         _store.RegenerateAndPublish(_current);
         RefreshApps();
         RefreshFolderMiniIcon();
+        if (failed.Count > 0)
+            System.Windows.MessageBox.Show(this,
+                "Couldn't add: " + string.Join(", ", failed), "Add apps",
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
     }
 
     private void Apps_DragOver(object sender, DragEventArgs e)
@@ -413,11 +434,7 @@ public partial class ManagerWindow : Window
     private void Apps_Drop(object sender, DragEventArgs e)
     {
         if (_current == null || !e.Data.GetDataPresent(DataFormats.FileDrop)) return;
-        foreach (var f in (string[])e.Data.GetData(DataFormats.FileDrop))
-            try { _store.AddShortcut(_current, f); } catch { }
-        _store.RegenerateAndPublish(_current);
-        RefreshApps();
-        RefreshFolderMiniIcon();
+        AddFiles((string[])e.Data.GetData(DataFormats.FileDrop));
     }
 
     // ---- Settings + live preview ----

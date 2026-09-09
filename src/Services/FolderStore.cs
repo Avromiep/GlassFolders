@@ -103,7 +103,12 @@ public sealed class FolderStore
 
     public FolderModel CreateFolder(string name)
     {
-        var dir = Path.Combine(FoldersPath, Sanitize(name));
+        // Uniquify so creating "Folder" twice (or two names that sanitize to the same directory)
+        // gives a distinct "Folder (2)" instead of silently reusing the existing one.
+        var baseName = Sanitize(name);
+        var dir = Path.Combine(FoldersPath, baseName);
+        for (int n = 2; Directory.Exists(dir); n++)
+            dir = Path.Combine(FoldersPath, $"{baseName} ({n})");
         Directory.CreateDirectory(dir);
         var model = LoadFolder(dir);
         RegenerateAndPublish(model);
@@ -115,6 +120,9 @@ public sealed class FolderStore
         var newDir = Path.Combine(FoldersPath, Sanitize(newName));
         if (string.Equals(newDir, folder.DirectoryPath, StringComparison.OrdinalIgnoreCase))
             return;
+        // Renaming onto an existing folder would throw a raw IO error; give a clear one instead.
+        if (Directory.Exists(newDir))
+            throw new InvalidOperationException($"A folder named “{Sanitize(newName)}” already exists.");
         Directory.Move(folder.DirectoryPath, newDir);
         DesktopIntegration.RemoveDesktopShortcut(folder.Name);
         var moved = LoadFolder(newDir);
@@ -233,8 +241,55 @@ public sealed class FolderStore
 
     public static string Sanitize(string name)
     {
+        name ??= "";
         foreach (var c in Path.GetInvalidFileNameChars())
             name = name.Replace(c, '_');
-        return name.Trim();
+        name = name.Trim().TrimEnd('.', ' ');   // Windows ignores trailing dots/spaces on dir names
+        // Never let a name resolve to the parent ("..") or the folders dir itself ("", ".") —
+        // otherwise create/delete would operate on %LOCALAPPDATA%\GlassFolders and could wipe
+        // every folder. Anything that collapses to empty/dots becomes a safe placeholder.
+        if (name.Length == 0 || name == "." || name == "..") name = "_";
+        return name;
+    }
+
+    /// <summary>Extracts the folder name from a `--open "Name"` (or `--open Name`) argument.</summary>
+    private static string? ParseOpenName(string? args)
+    {
+        if (string.IsNullOrEmpty(args)) return null;
+        int i = args.IndexOf("--open", StringComparison.OrdinalIgnoreCase);
+        if (i < 0) return null;
+        var rest = args[(i + "--open".Length)..].TrimStart();
+        if (rest.StartsWith('"'))
+        {
+            int end = rest.IndexOf('"', 1);
+            return end > 1 ? rest[1..end] : null;
+        }
+        int sp = rest.IndexOf(' ');
+        rest = sp < 0 ? rest : rest[..sp];
+        return string.IsNullOrWhiteSpace(rest) ? null : rest;
+    }
+
+    /// <summary>If this .lnk is a nested-folder tile (targets our own launcher with `--open "X"`),
+    /// returns the child folder name X; otherwise null. Used so export/import can carry nested
+    /// folders as a folder reference instead of a machine-specific path to GFOpen.exe.</summary>
+    public static string? NestedFolderName(string lnkPath)
+    {
+        var name = ParseOpenName(ShellLink.ReadArguments(lnkPath));
+        if (name == null) return null;
+        var target = ShellLink.ResolveTarget(lnkPath);
+        var basefn = target != null ? Path.GetFileName(target) : "";
+        return basefn.Equals("GFOpen.exe", StringComparison.OrdinalIgnoreCase)
+            || basefn.Equals("GlassFolders.exe", StringComparison.OrdinalIgnoreCase)
+            ? name : null;
+    }
+
+    /// <summary>Adds a tile that opens another (nested) folder by name — recreated against THIS
+    /// machine's launcher, so it survives an export/import to a different PC.</summary>
+    public void AddNestedFolderRef(FolderModel folder, string childName, string displayName)
+    {
+        string destLnk = UniqueLnkPath(folder.DirectoryPath, displayName);
+        DesktopIntegration.CreateFolderShortcut(destLnk, childName, iconPath: null);
+        folder.Items.Add(new ShortcutItem { LnkPath = destLnk });
+        SaveOrder(folder);
     }
 }

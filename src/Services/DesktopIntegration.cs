@@ -47,8 +47,12 @@ public static class DesktopIntegration
     {
         var slug = new string(folderName.Where(c => char.IsLetterOrDigit(c)).ToArray());
         if (slug.Length == 0) slug = "Folder";
-        if (slug.Length > 90) slug = slug[..90];
-        return "Avromiep.GlassFolders.Folder." + slug;
+        if (slug.Length > 80) slug = slug[..80];
+        // Names that reduce to the same slug ("Work" vs "Work!") would otherwise share one taskbar
+        // identity; append a short stable hash of the full name so distinct folders stay distinct.
+        uint h = 2166136261u;
+        foreach (char c in folderName) h = (h ^ c) * 16777619u;
+        return $"Avromiep.GlassFolders.Folder.{slug}.{h:x8}";
     }
 
     /// <summary>
@@ -58,17 +62,24 @@ public static class DesktopIntegration
     public static void PublishDesktopShortcut(FolderModel folder, string icoPath)
     {
         var lnkPath = DesktopLnkPathFor(folder.Name);
+        CreateFolderShortcut(lnkPath, folder.Name, icoPath);
+        RefreshIcon(lnkPath);
+    }
+
+    /// <summary>Writes a .lnk that opens the named folder — target is our fast launcher with
+    /// `--open`, plus the per-folder AppUserModelID. Shared by the desktop shortcut and by
+    /// nested-folder tiles (so an imported nested folder re-links to this machine's launcher).</summary>
+    public static void CreateFolderShortcut(string lnkPath, string folderName, string? iconPath)
+    {
         ShellLink.Create(
             lnkPath,
             targetPath: LauncherPath,   // tiny fast forwarder (falls back to the full exe)
-            arguments: $"--open \"{folder.Name}\"",
-            iconPath: icoPath,
+            arguments: $"--open \"{folderName}\"",
+            iconPath: iconPath,
             iconIndex: 0,
-            description: $"Glass folder: {folder.Name}",
+            description: $"Glass folder: {folderName}",
             workingDirectory: AppContext.BaseDirectory,
-            appUserModelId: AppUserModelIdFor(folder.Name));
-
-        RefreshIcon(lnkPath);
+            appUserModelId: AppUserModelIdFor(folderName));
     }
 
     /// <summary>

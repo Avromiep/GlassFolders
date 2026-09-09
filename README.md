@@ -17,15 +17,16 @@ and it expands into a floating **glass** panel; click any app to launch it.
 ## Features
 
 - **Frosted glass folders** — closed folders show a live composite of the real app icons inside;
-  open folders are a genuine blurred-glass panel with adjustable **frostiness**.
+  open folders are a genuine blurred-glass panel with an adjustable **Blur** amount.
 - **Single-click to open** — only *your* folders; the rest of the desktop keeps its normal
   double-click behavior.
 - **Paged 3×3 grids** — folders hold as many apps as you like, with page dots and arrows.
-- **Drag & drop** — drop apps/shortcuts onto the open folder to add them; drag to rearrange;
-  right-click or press **Delete** to remove.
+- **Drag & drop** — drop apps/shortcuts onto a folder to add them; on the open panel, drag an app
+  out (or right-click it → **Remove**) to take it out. In the manager you can also rearrange apps
+  and press **Delete** to remove the selected one.
 - **Modern manager** — a chromeless, theme-adaptive (light/dark) glass window to create, rename,
   delete and organize folders. The main view *is* the folder — rearrange it live.
-- **Per-folder settings** — frostiness (with a default detent at 55) and a 3×3 **“Opens at”**
+- **Per-folder settings** — a **Blur** slider (with a default detent) and a 3×3 **“Opens at”**
   picker to choose where on the screen the panel appears.
 - **Import / Export** — back up your folders to a file and import them on another PC; each app
   that’s installed there is **re-linked automatically**, in the same order.
@@ -33,12 +34,16 @@ and it expands into a floating **glass** panel; click any app to launch it.
 
 ## Install
 
-1. Download **`GlassFolders.exe`** from the [latest Release](../../releases/latest).
-2. Run it. It’s a single self-contained file — **no .NET install required** on Windows 10/11 (x64).
-3. Open the manager (the **Glass Folders** desktop shortcut, or the tray icon) and create a folder.
+1. Download **`GlassFolders-Setup.exe`** from the [latest Release](../../releases/latest).
+2. Run it. It’s a **per-user installer** — no admin/UAC needed, and **no .NET install required** on
+   Windows 10/11 (x64). It adds Start-menu and desktop shortcuts and sets Glass Folders to start
+   automatically when you sign in, so single-click folders work right away. (You can turn off
+   start-at-sign-in anytime in **Settings ⚙ → General**.)
+3. The **Glass Folders** manager opens — create a folder, drop some apps into it, and its icon
+   appears on your desktop. Single-click that icon to open the glass panel.
 
-> Tip: put the `.exe` somewhere permanent (e.g. a folder in your user directory) before creating
-> folders, so your desktop folder icons keep pointing at it.
+> Uninstall from **Settings → Apps** like any normal program. Your folders live under
+> `%LOCALAPPDATA%\GlassFolders`; uninstall offers to remove them or leave them in place.
 
 ## Build from source
 

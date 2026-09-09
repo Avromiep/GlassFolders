@@ -7,8 +7,10 @@
 
 #define AppName "Glass Folders"
 #define AppExe "GlassFolders.exe"
+; Version must be passed by the build (/DAppVersion=X.Y.Z). Fail loudly rather than
+; silently stamping a stale default that mismatches the app.
 #ifndef AppVersion
-  #define AppVersion "0.1.6"
+  #error AppVersion not defined - build with ISCC /DAppVersion=X.Y.Z
 #endif
 
 [Setup]
