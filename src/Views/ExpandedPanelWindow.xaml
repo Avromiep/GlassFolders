@@ -173,13 +173,11 @@
                               StrokeLineJoin="Round"
                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                     </Button>
+                    <!-- No white glow: like the tile labels, dark text on the frosted veil reads
+                         crisp without a halo (the halo made it look fuzzy). -->
                     <TextBlock x:Name="TitleText" FontSize="17" FontWeight="SemiBold" Foreground="#15181D"
                                HorizontalAlignment="Center" Cursor="Hand" ToolTip="Click to rename"
-                               MouseLeftButtonUp="TitleText_Click">
-                        <TextBlock.Effect>
-                            <DropShadowEffect BlurRadius="7" ShadowDepth="0" Opacity="0.85" Color="#FFFFFF"/>
-                        </TextBlock.Effect>
-                    </TextBlock>
+                               MouseLeftButtonUp="TitleText_Click"/>
                     <TextBox x:Name="TitleEdit" FontSize="17" FontWeight="SemiBold" Foreground="#15181D"
                              HorizontalAlignment="Center" TextAlignment="Center" MinWidth="140"
                              Visibility="Collapsed" Padding="6,1" CaretBrush="#15181D"
