@@ -118,21 +118,32 @@ public partial class SettingsWindow : Window
 
     // ---- Import / export ----
 
+    /// <summary>Dedicated, discoverable folder for exports: Documents\Glass Folders Exports.</summary>
+    private static string ExportsDir => System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Glass Folders Exports");
+
     private void Export_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new SaveFileDialog
-        {
-            Title = "Export folders",
-            Filter = "Glass Folders backup (*.json)|*.json",
-            FileName = "glass-folders.json",
-        };
-        if (dlg.ShowDialog(this) != true) return;
         try
         {
-            FolderIO.ExportAll(_store, dlg.FileName);
-            BackupStatus.Text = $"Exported to {dlg.FileName}";
+            // Save straight into the exports folder (no Save dialog); a timestamped name so
+            // repeat exports don't overwrite each other. Tell the user the exact path.
+            System.IO.Directory.CreateDirectory(ExportsDir);
+            var dest = System.IO.Path.Combine(ExportsDir, $"glass-folders-{DateTime.Now:yyyy-MM-dd_HHmmss}.json");
+            FolderIO.ExportAll(_store, dest);
+            BackupStatus.Text = $"Exported to: {dest}";
         }
         catch (Exception ex) { BackupStatus.Text = "Export failed: " + ex.Message; }
+    }
+
+    private void OpenExports_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(ExportsDir);
+            Process.Start(new ProcessStartInfo(ExportsDir) { UseShellExecute = true });
+        }
+        catch (Exception ex) { BackupStatus.Text = "Couldn't open the folder: " + ex.Message; }
     }
 
     private void Import_Click(object sender, RoutedEventArgs e)

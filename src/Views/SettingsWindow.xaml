@@ -146,11 +146,13 @@
                     <TextBlock Text="Import &amp; export" FontWeight="SemiBold" Foreground="{DynamicResource Fg}"
                                Margin="0,0,0,4"/>
                     <TextBlock Foreground="{DynamicResource FgDim}" FontSize="12.5" TextWrapping="Wrap"
-                               Text="Export your folders to a file. On another PC, import it and each app that's installed there is re-linked automatically, in the same order."
+                               Text="Export saves your folders into a &quot;Glass Folders Exports&quot; folder in your Documents. On another PC, import it and each app that's installed there is re-linked automatically, in the same order."
                                Margin="0,0,0,12"/>
                     <StackPanel Orientation="Horizontal">
                         <Button x:Name="ExportButton" Style="{StaticResource Ghost}"
-                                Content="Export folders…" Click="Export_Click"/>
+                                Content="Export folders" Click="Export_Click"/>
+                        <Button x:Name="OpenExportsButton" Style="{StaticResource Ghost}" Margin="10,0,0,0"
+                                Content="Open exports folder" Click="OpenExports_Click"/>
                         <Button x:Name="ImportButton" Style="{StaticResource Ghost}" Margin="10,0,0,0"
                                 Content="Import folders…" Click="Import_Click"/>
                     </StackPanel>
