@@ -27,7 +27,11 @@ public static class IconExtractor
         var primary = ExtractRaw(path, size);
         if (primary == null) return null;
 
-        var pb = OpaqueBounds(primary);
+        // Measure fill using SOLID pixels only (high alpha). Some empty large frames are peppered
+        // with faint near-transparent noise that would otherwise inflate the bounding box to the
+        // whole frame and hide the fact that the real glyph is tiny (this is exactly BlackVue).
+        const byte SolidAlpha = 128;
+        var pb = OpaqueBounds(primary, SolidAlpha);
         double primaryFill = pb.IsEmpty ? 0 : Math.Max(pb.Width, pb.Height) / (double)size;
         if (primaryFill >= 0.60) return primary;   // adequately filled -> exactly as before
 
@@ -40,7 +44,7 @@ public static class IconExtractor
             if (fs >= size) continue;
             var cand = ExtractRaw(path, fs);
             if (cand == null) continue;
-            var cb = OpaqueBounds(cand);
+            var cb = OpaqueBounds(cand, SolidAlpha);
             double cf = cb.IsEmpty ? 0 : Math.Max(cb.Width, cb.Height) / (double)fs;
             if (cf > bestFill) { best?.Dispose(); best = cand; bestBox = cb; bestFill = cf; }
             else cand.Dispose();
