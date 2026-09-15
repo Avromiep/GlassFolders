@@ -99,6 +99,25 @@ public partial class ManagerWindow : Window
     // ---- Open-monitor map (mirrors the real display arrangement, like Windows' Identify) ----
 
     private readonly Dictionary<string, Border> _monitorCells = new(StringComparer.OrdinalIgnoreCase);
+    private string? _autoMonitorDevice;   // which monitor the current folder's icon is on (for the auto hint)
+    private int _monitorProbe;            // guards stale async lookups when switching folders fast
+
+    /// <summary>Finds (off the UI thread) which monitor the current folder's desktop icon sits on,
+    /// so "Same as folder" can show it as an outline. Null for taskbar-only folders.</summary>
+    private void RefreshAutoMonitor()
+    {
+        _autoMonitorDevice = null;
+        if (_current == null) return;
+        string name = _current.Name;
+        int token = ++_monitorProbe;
+        System.Threading.Tasks.Task.Run(() => DesktopIcons.MonitorDeviceOf(name))
+            .ContinueWith(r =>
+            {
+                if (token != _monitorProbe) return;   // a different folder is selected now
+                _autoMonitorDevice = r.Result;
+                UpdateMonitorSelection();
+            }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
+    }
 
     private void BuildMonitorMap()
     {
@@ -167,17 +186,23 @@ public partial class ManagerWindow : Window
     private void UpdateMonitorSelection()
     {
         bool auto = string.IsNullOrEmpty(_current?.PanelMonitor);
+        var accent = (Brush)Resources["Accent"];
         var dim = new SolidColorBrush(Color.FromArgb(0x55, 0x88, 0x88, 0x88));
         var dimBorder = new SolidColorBrush(Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF));
         foreach (var (dev, cell) in _monitorCells)
         {
-            bool sel = !auto && string.Equals(dev, _current!.PanelMonitor, StringComparison.OrdinalIgnoreCase);
-            cell.Background = sel ? (Brush)Resources["Accent"] : dim;
-            cell.BorderBrush = sel ? (Brush)Resources["Accent"] : dimBorder;
+            // Explicit pick = solid accent FILL. "Same as folder" = accent OUTLINE on the monitor
+            // the folder's icon is currently on (so you can see where it'll open) — no fill.
+            bool selected = !auto && string.Equals(dev, _current!.PanelMonitor, StringComparison.OrdinalIgnoreCase);
+            bool autoHere = auto && _autoMonitorDevice != null
+                && string.Equals(dev, _autoMonitorDevice, StringComparison.OrdinalIgnoreCase);
+            cell.Background = selected ? accent : dim;
+            cell.BorderBrush = (selected || autoHere) ? accent : dimBorder;
+            cell.BorderThickness = new Thickness(autoHere ? 2 : 1);
         }
         if (auto)
         {
-            AutoMonitorButton.Background = (Brush)Resources["Accent"];
+            AutoMonitorButton.Background = accent;
             AutoMonitorText.Foreground = Brushes.White;
         }
         else
@@ -544,6 +569,7 @@ public partial class ManagerWindow : Window
             UpdateGlass(_current.Frostiness);
             UpdatePositionSelection();
             UpdateMonitorSelection();
+            RefreshAutoMonitor();   // async: outlines the folder's current monitor under "Same as folder"
         }
         _loadingSettings = false;
     }
