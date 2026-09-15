@@ -686,12 +686,49 @@ public partial class ExpandedPanelWindow : Window
 
     // ---- Visuals ----
 
+    /// <summary>The monitor the panel should open on: the folder's explicitly chosen monitor when
+    /// set and still present, otherwise the monitor the folder icon was clicked on (the default).</summary>
+    private System.Windows.Forms.Screen ResolveTargetScreen()
+    {
+        var screens = System.Windows.Forms.Screen.AllScreens;
+        var dev = _folder?.PanelMonitor;
+        if (!string.IsNullOrEmpty(dev))
+        {
+            // 1) exact device name.
+            foreach (var s in screens)
+                if (string.Equals(s.DeviceName, dev, StringComparison.OrdinalIgnoreCase)) return s;
+
+            // 2) device name changed — re-find by the bounds we saved when it was chosen.
+            var r = ParseRect(_folder?.PanelMonitorRect);
+            if (r is { } rect)
+            {
+                foreach (var s in screens)
+                    if (s.Bounds.Left == rect.Left && s.Bounds.Top == rect.Top
+                        && s.Bounds.Width == rect.Width && s.Bounds.Height == rect.Height) return s;
+                var center = new System.Drawing.Point(rect.Left + rect.Width / 2, rect.Top + rect.Height / 2);
+                foreach (var s in screens)
+                    if (s.Bounds.Contains(center)) return s;
+            }
+            // 3) chosen monitor is gone -> fall through to the folder's own monitor.
+        }
+
+        var probe = AnchorPoint ?? System.Windows.Forms.Cursor.Position;
+        return System.Windows.Forms.Screen.FromPoint(probe);
+    }
+
+    private static System.Drawing.Rectangle? ParseRect(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return null;
+        var p = s.Split(',');
+        if (p.Length == 4 && int.TryParse(p[0], out var l) && int.TryParse(p[1], out var t)
+            && int.TryParse(p[2], out var w) && int.TryParse(p[3], out var h))
+            return new System.Drawing.Rectangle(l, t, w, h);
+        return null;
+    }
+
     private void PositionNearCursor()
     {
-        // Anchor to the clicked folder icon's screen (falls back to the cursor for the
-        // double-click path). This guarantees the panel opens on the folder's own display.
-        var probe = AnchorPoint ?? System.Windows.Forms.Cursor.Position;
-        var screen = System.Windows.Forms.Screen.FromPoint(probe);
+        var screen = ResolveTargetScreen();
         var wa = screen.WorkingArea;
 
         // WPF units vs device pixels: approximate with the window's DPI scale.

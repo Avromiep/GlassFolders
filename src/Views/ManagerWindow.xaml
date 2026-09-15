@@ -335,10 +335,26 @@
                                           Click="OnDesktop_Click"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock Text="Opens at" Foreground="{DynamicResource FgDim}" FontSize="11.5"
-                                           HorizontalAlignment="Center" Margin="0,0,0,6"/>
-                                <UniformGrid x:Name="PositionGrid" Rows="3" Columns="3" Width="64" Height="64"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <!-- Which monitor the folder opens on -->
+                                <StackPanel Margin="0,0,20,0" VerticalAlignment="Center">
+                                    <TextBlock Text="Opens on" Foreground="{DynamicResource FgDim}" FontSize="11.5"
+                                               HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                                    <!-- Live map of the real monitor arrangement is built in code. -->
+                                    <Canvas x:Name="MonitorMap" Width="150" Height="86"/>
+                                    <Border x:Name="AutoMonitorButton" Cursor="Hand" CornerRadius="10"
+                                            Padding="12,5" HorizontalAlignment="Center" Margin="0,8,0,0"
+                                            MouseLeftButtonUp="AutoMonitor_Click">
+                                        <TextBlock x:Name="AutoMonitorText" Text="Same as folder"
+                                                   FontSize="11.5" Foreground="{DynamicResource Fg}"/>
+                                    </Border>
+                                </StackPanel>
+                                <!-- Where on that monitor -->
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Position" Foreground="{DynamicResource FgDim}" FontSize="11.5"
+                                               HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                                    <UniformGrid x:Name="PositionGrid" Rows="3" Columns="3" Width="64" Height="64"/>
+                                </StackPanel>
                             </StackPanel>
                         </Grid>
                     </Border>

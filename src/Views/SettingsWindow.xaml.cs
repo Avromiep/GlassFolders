@@ -59,6 +59,9 @@ public partial class SettingsWindow : Window
 
     // ---- Updates ----
 
+    /// <summary>Starts an update check programmatically (used by the tray "Check for updates").</summary>
+    public void BeginUpdateCheck() => Check_Click(this, new RoutedEventArgs());
+
     private async void Check_Click(object sender, RoutedEventArgs e)
     {
         CheckButton.IsEnabled = false;

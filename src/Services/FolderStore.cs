@@ -81,6 +81,10 @@ public sealed class FolderStore
                 model.OnDesktop = b;
             else if (key == "panelposition" && int.TryParse(val, out var pp))
                 model.PanelPosition = Math.Clamp(pp, 0, 8);
+            else if (key == "monitor")
+                model.PanelMonitor = val.Length == 0 ? null : val;
+            else if (key == "monitorrect")
+                model.PanelMonitorRect = val.Length == 0 ? null : val;
         }
     }
 
@@ -92,6 +96,8 @@ public sealed class FolderStore
             $"frostiness={folder.Frostiness}",
             $"ondesktop={folder.OnDesktop}",
             $"panelposition={folder.PanelPosition}",
+            $"monitor={folder.PanelMonitor}",
+            $"monitorrect={folder.PanelMonitorRect}",
         });
     }
 

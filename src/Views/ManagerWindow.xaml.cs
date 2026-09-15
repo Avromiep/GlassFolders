@@ -36,6 +36,7 @@ public partial class ManagerWindow : Window
         InitializeComponent();
         ApplyTheme(_dark);
         BuildPositionGrid();
+        BuildMonitorMap();
         SourceInitialized += (_, _) => ApplyGlass();
         LoadWallpaper();
         ReloadFolders();
@@ -93,6 +94,97 @@ public partial class ManagerWindow : Window
         int sel = _current?.PanelPosition ?? 4;
         for (int i = 0; i < 9; i++)
             _posCells[i].Background = PosBrush(i == sel);
+    }
+
+    // ---- Open-monitor map (mirrors the real display arrangement, like Windows' Identify) ----
+
+    private readonly Dictionary<string, Border> _monitorCells = new(StringComparer.OrdinalIgnoreCase);
+
+    private void BuildMonitorMap()
+    {
+        MonitorMap.Children.Clear();
+        _monitorCells.Clear();
+
+        var screens = System.Windows.Forms.Screen.AllScreens;
+        if (screens.Length == 0) return;
+
+        int minX = screens.Min(s => s.Bounds.Left), minY = screens.Min(s => s.Bounds.Top);
+        int maxX = screens.Max(s => s.Bounds.Right), maxY = screens.Max(s => s.Bounds.Bottom);
+        double vw = Math.Max(1, maxX - minX), vh = Math.Max(1, maxY - minY);
+
+        const double pad = 3, gap = 2;
+        double cw = MonitorMap.Width - 2 * pad, ch = MonitorMap.Height - 2 * pad;
+        double scale = Math.Min(cw / vw, ch / vh);
+        double ox = pad + (cw - vw * scale) / 2, oy = pad + (ch - vh * scale) / 2;
+
+        foreach (var s in screens)
+        {
+            var b = s.Bounds;
+            string num = new string(s.DeviceName.Where(char.IsDigit).ToArray());
+            var cell = new Border
+            {
+                Width = Math.Max(12, b.Width * scale - gap),
+                Height = Math.Max(12, b.Height * scale - gap),
+                CornerRadius = new CornerRadius(3),
+                BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand,
+                ToolTip = $"Display {num} — {b.Width}×{b.Height}",
+                Child = new TextBlock
+                {
+                    Text = num.Length > 0 ? num : "•",
+                    Foreground = Brushes.White, FontSize = 11, FontWeight = FontWeights.SemiBold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            };
+            string dev = s.DeviceName, rect = $"{b.Left},{b.Top},{b.Width},{b.Height}";
+            cell.MouseLeftButtonUp += (_, _) => SetMonitor(dev, rect);
+            Canvas.SetLeft(cell, ox + (b.Left - minX) * scale);
+            Canvas.SetTop(cell, oy + (b.Top - minY) * scale);
+            MonitorMap.Children.Add(cell);
+            _monitorCells[dev] = cell;
+        }
+    }
+
+    private void SetMonitor(string device, string rect)
+    {
+        if (_current == null) return;
+        _current.PanelMonitor = device;
+        _current.PanelMonitorRect = rect;
+        _store.SaveSettings(_current);
+        UpdateMonitorSelection();
+    }
+
+    private void AutoMonitor_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (_current == null) return;
+        _current.PanelMonitor = null;
+        _current.PanelMonitorRect = null;
+        _store.SaveSettings(_current);
+        UpdateMonitorSelection();
+    }
+
+    private void UpdateMonitorSelection()
+    {
+        bool auto = string.IsNullOrEmpty(_current?.PanelMonitor);
+        var dim = new SolidColorBrush(Color.FromArgb(0x55, 0x88, 0x88, 0x88));
+        var dimBorder = new SolidColorBrush(Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF));
+        foreach (var (dev, cell) in _monitorCells)
+        {
+            bool sel = !auto && string.Equals(dev, _current!.PanelMonitor, StringComparison.OrdinalIgnoreCase);
+            cell.Background = sel ? (Brush)Resources["Accent"] : dim;
+            cell.BorderBrush = sel ? (Brush)Resources["Accent"] : dimBorder;
+        }
+        if (auto)
+        {
+            AutoMonitorButton.Background = (Brush)Resources["Accent"];
+            AutoMonitorText.Foreground = Brushes.White;
+        }
+        else
+        {
+            AutoMonitorButton.Background = new SolidColorBrush(Color.FromArgb(0x33, 0x88, 0x88, 0x88));
+            AutoMonitorText.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
+        }
     }
 
     // ---- Theme / glass ----
@@ -451,6 +543,7 @@ public partial class ManagerWindow : Window
 
             UpdateGlass(_current.Frostiness);
             UpdatePositionSelection();
+            UpdateMonitorSelection();
         }
         _loadingSettings = false;
     }

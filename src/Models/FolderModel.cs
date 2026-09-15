@@ -44,6 +44,15 @@ public sealed class FolderModel
     /// <summary>Where the panel opens: 0..8 = a 3x3 screen grid (row*3+col); 4 = center.</summary>
     public int PanelPosition { get; set; } = 4;
 
+    /// <summary>Which monitor the panel opens on. Null/empty = "same monitor as the folder icon"
+    /// (the default). Otherwise the chosen monitor's device name (e.g. \\.\DISPLAY3).</summary>
+    public string? PanelMonitor { get; set; }
+
+    /// <summary>The chosen monitor's bounds "L,T,W,H" at the time it was picked — a fallback used
+    /// to re-find the monitor if its device name changed; if it can't be found we revert to the
+    /// folder's own monitor.</summary>
+    public string? PanelMonitorRect { get; set; }
+
     public int PageCount => Math.Max(1, (int)Math.Ceiling(Items.Count / (double)PageSize));
 
     public IEnumerable<ShortcutItem> Page(int index) =>

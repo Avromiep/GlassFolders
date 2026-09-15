@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.34";
+    public const string AppVersion = "0.3.35";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -714,6 +714,27 @@ public partial class App : Application
         }
     }
 
+    private Views.SettingsWindow? _settings;
+
+    /// <summary>Opens (or focuses) the Settings window from the tray. When
+    /// <paramref name="checkForUpdates"/> is set, it also kicks off an update check so the result
+    /// and the install button appear right there.</summary>
+    private void ShowSettings(bool checkForUpdates)
+    {
+        if (_settings == null)
+        {
+            _settings = new Views.SettingsWindow(_store, () => { });
+            _settings.Closed += (_, _) => _settings = null;
+            _settings.Show();
+        }
+        else
+        {
+            if (_settings.WindowState == WindowState.Minimized) _settings.WindowState = WindowState.Normal;
+            _settings.Activate();
+        }
+        if (checkForUpdates) _settings.BeginUpdateCheck();
+    }
+
     private void SetupTray()
     {
         _tray = new WinForms.NotifyIcon
@@ -747,10 +768,18 @@ public partial class App : Application
             var open = new System.Windows.Controls.MenuItem
             { Header = $"Open {AppName}", Style = (Style)Resources["TrayMenuItem"] };
             open.Click += (_, _) => ShowManager();
+            var settings = new System.Windows.Controls.MenuItem
+            { Header = "Settings", Style = (Style)Resources["TrayMenuItem"] };
+            settings.Click += (_, _) => ShowSettings(checkForUpdates: false);
+            var update = new System.Windows.Controls.MenuItem
+            { Header = "Check for updates", Style = (Style)Resources["TrayMenuItem"] };
+            update.Click += (_, _) => ShowSettings(checkForUpdates: true);
             var exit = new System.Windows.Controls.MenuItem
             { Header = "Exit", Style = (Style)Resources["TrayMenuItem"] };
             exit.Click += (_, _) => ExitApp();
             _trayMenu.Items.Add(open);
+            _trayMenu.Items.Add(settings);
+            _trayMenu.Items.Add(update);
             _trayMenu.Items.Add(new System.Windows.Controls.Separator
             { Style = (Style)Resources["TraySeparator"] });
             _trayMenu.Items.Add(exit);
