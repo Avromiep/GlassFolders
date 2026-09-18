@@ -565,6 +565,7 @@ public partial class ManagerWindow : Window
             FrostSlider.Value = _current.Frostiness;
             UpdateFrostLabel(_current.Frostiness);
             OnDesktopCheck.IsChecked = _current.OnDesktop;
+            FileListCheck.IsChecked = _current.View == FolderView.List;
 
             UpdateGlass(_current.Frostiness);
             UpdatePositionSelection();
@@ -650,6 +651,13 @@ public partial class ManagerWindow : Window
         _current.OnDesktop = OnDesktopCheck.IsChecked == true;
         _store.SaveSettings(_current);
         _store.RegenerateAndPublish(_current);
+    }
+
+    private void FileList_Click(object sender, RoutedEventArgs e)
+    {
+        if (_loadingSettings || _current == null) return;
+        _current.View = FileListCheck.IsChecked == true ? FolderView.List : FolderView.Grid;
+        _store.SaveSettings(_current);
     }
 
     private void LoadWallpaper()

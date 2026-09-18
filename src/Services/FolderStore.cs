@@ -85,6 +85,9 @@ public sealed class FolderStore
                 model.PanelMonitor = val.Length == 0 ? null : val;
             else if (key == "monitorrect")
                 model.PanelMonitorRect = val.Length == 0 ? null : val;
+            else if (key == "view")
+                model.View = val.Equals("list", StringComparison.OrdinalIgnoreCase)
+                    ? FolderView.List : FolderView.Grid;
         }
     }
 
@@ -98,6 +101,7 @@ public sealed class FolderStore
             $"panelposition={folder.PanelPosition}",
             $"monitor={folder.PanelMonitor}",
             $"monitorrect={folder.PanelMonitorRect}",
+            $"view={(folder.View == FolderView.List ? "list" : "grid")}",
         });
     }
 

@@ -20,7 +20,9 @@ and it expands into a floating **glass** panel; click any app to launch it.
   open folders are a genuine blurred-glass panel with an adjustable **Blur** amount.
 - **Single-click to open** — only *your* folders; the rest of the desktop keeps its normal
   double-click behavior.
-- **Paged 3×3 grids** — folders hold as many apps as you like, with page dots and arrows.
+- **Two folder styles** — *Apps* open as a paged 3×3 icon grid (with page dots and arrows);
+  *Files* open as an Explorer‑style **vertical list that grows in height** as you add more files
+  (then scrolls) — ideal for a pile of `.rdp` files or documents. Toggle per folder in the manager.
 - **Drag & drop** — drop apps/shortcuts onto a folder to add them; on the open panel, drag an app
   out (or right-click it → **Remove**) to take it out. In the manager you can also rearrange apps
   and press **Delete** to remove the selected one.

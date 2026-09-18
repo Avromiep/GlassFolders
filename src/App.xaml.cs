@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.36";
+    public const string AppVersion = "0.3.37";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -111,6 +111,12 @@ public partial class App : Application
             return; // shot mode drives its own shutdown
         }
 
+        if (e.Args.Length >= 1 && e.Args[0].Equals("--shotlist", StringComparison.OrdinalIgnoreCase))
+        {
+            StartShot(e.Args.Length >= 2 ? e.Args[1] : "panellist.png", list: true);
+            return;
+        }
+
         if (e.Args.Length >= 1 && e.Args[0].Equals("--shotmgr", StringComparison.OrdinalIgnoreCase))
         {
             StartShotManager(e.Args.Length >= 2 ? e.Args[1] : "manager.png");
@@ -186,7 +192,7 @@ public partial class App : Application
     /// Opens the panel over a throwaway demo folder, waits for it to render/composite,
     /// captures the on-screen window (glass over the real wallpaper) to a PNG, then exits.
     /// </summary>
-    private void StartShot(string outPng)
+    private void StartShot(string outPng, bool list = false)
     {
       try
       {
@@ -207,8 +213,26 @@ public partial class App : Application
         Directory.CreateDirectory(DesktopIntegration.DesktopDirOverride);
 
         var store = new FolderStore(tempRoot);
-        var folder = store.CreateFolder("Glass Demo");
-        foreach (var a in demoApps) store.AddShortcut(folder, a);
+        var folder = store.CreateFolder(list ? "RDP Servers" : "Glass Demo");
+        if (list)
+        {
+            // Dummy .rdp files so the list looks like the real RDP use case.
+            var rdpDir = Path.Combine(tempRoot, "rdp");
+            Directory.CreateDirectory(rdpDir);
+            foreach (var n in new[] { "ACME-DC01", "ACME-SQL", "ContosoTerminal", "Finance-App-Server",
+                                      "Warehouse-PC-2", "Reception Front Desk", "Backup Server (nightly)" })
+            {
+                var p = Path.Combine(rdpDir, n + ".rdp");
+                File.WriteAllText(p, "full address:s:" + n);
+                store.AddShortcut(folder, p);
+            }
+            folder.View = FolderView.List;
+            store.SaveSettings(folder);
+        }
+        else
+        {
+            foreach (var a in demoApps) store.AddShortcut(folder, a);
+        }
 
         File.WriteAllText(outPng + ".count.log",
             $"demoApps={demoApps.Length} items={folder.Items.Count} pages={folder.PageCount}");

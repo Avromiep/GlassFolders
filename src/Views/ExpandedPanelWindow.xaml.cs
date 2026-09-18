@@ -168,7 +168,7 @@ public partial class ExpandedPanelWindow : Window
         ApplyFrostiness(folder.Frostiness);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        RenderPage();
+        RenderContent();
         long tRender = sw.ElapsedMilliseconds;
 
         // Finalize size (SizeToContent settles here) then position. Nested navigation (popIn) keeps
@@ -771,7 +771,96 @@ public partial class ExpandedPanelWindow : Window
         Root.BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(38)));
     }
 
-    // ---- Paging ----
+    // ---- Content ----
+
+    /// <summary>Renders the folder either as the paged app grid or the Explorer-style file list,
+    /// per the folder's View mode, toggling the relevant chrome.</summary>
+    private void RenderContent()
+    {
+        if (_folder.View == FolderView.List)
+        {
+            GridContent.Visibility = Visibility.Collapsed;
+            Dots.Visibility = Visibility.Collapsed;
+            ListContent.Visibility = Visibility.Visible;
+            RenderList();
+        }
+        else
+        {
+            ListContent.Visibility = Visibility.Collapsed;
+            GridContent.Visibility = Visibility.Visible;
+            Dots.Visibility = Visibility.Visible;
+            RenderPage();
+        }
+    }
+
+    private void RenderList()
+    {
+        ItemsList.Items.Clear();
+        foreach (var item in _folder.Items)
+            ItemsList.Items.Add(BuildListRow(item));
+        // Grow with the file count up to ~the monitor's height, then the ScrollViewer takes over.
+        ListContent.MaxHeight = ComputeListMaxHeight();
+    }
+
+    /// <summary>Cap for the file list = most of the target monitor's working height, leaving room
+    /// for the window's shadow margin, the frost padding and the title row.</summary>
+    private double ComputeListMaxHeight()
+    {
+        try
+        {
+            var wa = ResolveTargetScreen().WorkingArea;
+            var src = PresentationSource.FromVisual(this);
+            double sy = src?.CompositionTarget?.TransformFromDevice.M22 ?? 1.0;
+            return Math.Max(140, wa.Height * sy * 0.90 - 150);
+        }
+        catch { return 700; }
+    }
+
+    private UIElement BuildListRow(ShortcutItem item)
+    {
+        var image = new System.Windows.Controls.Image
+        {
+            Width = 28,
+            Height = 28,
+            Source = IconForItem(item),
+            Stretch = Stretch.Uniform,
+            SnapsToDevicePixels = true,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+
+        var label = new TextBlock
+        {
+            Text = item.DisplayName,
+            FontSize = 13.5,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x15, 0x18, 0x1D)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 0, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            ToolTip = item.DisplayName,
+        };
+        System.Windows.Media.TextOptions.SetTextFormattingMode(label, System.Windows.Media.TextFormattingMode.Display);
+
+        // Grid so the name column takes the remaining width and ellipsizes cleanly.
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(image, 0);
+        Grid.SetColumn(label, 1);
+        grid.Children.Add(image);
+        grid.Children.Add(label);
+
+        var btn = new Button { Style = (Style)Resources["ListRow"], Content = grid, Tag = item };
+        btn.Click += (_, _) => Launch(item);
+
+        var remove = new MenuItem { Header = "Remove from folder" };
+        remove.Click += (_, _) => RemoveItem(item);
+        btn.ContextMenu = new ContextMenu();
+        btn.ContextMenu.Items.Add(remove);
+        return btn;
+    }
+
+    // ---- Paging (grid view) ----
 
     private void RenderPage()
     {
@@ -861,7 +950,10 @@ public partial class ExpandedPanelWindow : Window
     private void Next_Click(object sender, RoutedEventArgs e) => ChangePage(+1);
 
     private void Window_MouseWheel(object sender, MouseWheelEventArgs e)
-        => ChangePage(e.Delta > 0 ? -1 : +1);
+    {
+        if (_folder != null && _folder.View == FolderView.List) return; // let the list ScrollViewer scroll
+        ChangePage(e.Delta > 0 ? -1 : +1);
+    }
 
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
@@ -1024,7 +1116,8 @@ public partial class ExpandedPanelWindow : Window
         _store.RemoveShortcut(_folder, item);
         _store.RegenerateAndPublish(_folder);   // closed icon reflects first page
         if (_pageIndex >= _folder.PageCount) _pageIndex = _folder.PageCount - 1;
-        RenderPage();
+        RenderContent();
+        if (_folder.View == FolderView.List) { UpdateLayout(); PositionNearCursor(); } // re-anchor as it shrinks
     }
 
     private void Window_DragOver(object sender, DragEventArgs e)
@@ -1043,7 +1136,8 @@ public partial class ExpandedPanelWindow : Window
             try { _store.AddShortcut(_folder, f); } catch { }
         }
         _store.RegenerateAndPublish(_folder);
-        RenderPage();
+        RenderContent();
+        if (_folder.View == FolderView.List) { UpdateLayout(); PositionNearCursor(); } // grow + re-anchor
     }
 
     /// <summary>Test/screenshot mode: keep the panel open when it loses focus.</summary>

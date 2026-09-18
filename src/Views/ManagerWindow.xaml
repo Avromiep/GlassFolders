@@ -333,6 +333,9 @@
                                 <CheckBox x:Name="OnDesktopCheck" Content="Show shortcut on desktop"
                                           VerticalAlignment="Center" Foreground="{DynamicResource Fg}"
                                           Click="OnDesktop_Click"/>
+                                <CheckBox x:Name="FileListCheck" Content="Open as a file list (for RDP / documents)"
+                                          Margin="0,8,0,0" VerticalAlignment="Center"
+                                          Foreground="{DynamicResource Fg}" Click="FileList_Click"/>
                             </StackPanel>
 
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">

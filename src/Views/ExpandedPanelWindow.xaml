@@ -127,6 +127,32 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- A single row in the Explorer-style file list: full-width, left-aligned, rounded hover. -->
+        <Style x:Key="ListRow" TargetType="Button">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="row" Background="Transparent" CornerRadius="8" Padding="8,6" Margin="0,1">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="row" Property="Background" Value="#33FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="row" Property="Background" Value="#55FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <!-- Layered transparent window. We render the frost ourselves (a blurred grab of the
@@ -199,37 +225,52 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <!-- Grid area with side chevrons -->
+                <!-- Content host: the app grid (default) OR the Explorer-style file list. -->
                 <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
+                    <!-- App grid with side chevrons -->
+                    <Grid x:Name="GridContent">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-                    <Button x:Name="PrevButton" Grid.Column="0" Style="{StaticResource ChevronButton}"
-                            Click="Prev_Click">
-                        <Path Data="M 12,2 L 2,11 L 12,20" Stroke="{Binding Foreground,
-                              RelativeSource={RelativeSource AncestorType=Button}}"
-                              StrokeThickness="2.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-                    </Button>
+                        <Button x:Name="PrevButton" Grid.Column="0" Style="{StaticResource ChevronButton}"
+                                Click="Prev_Click">
+                            <Path Data="M 12,2 L 2,11 L 12,20" Stroke="{Binding Foreground,
+                                  RelativeSource={RelativeSource AncestorType=Button}}"
+                                  StrokeThickness="2.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                        </Button>
 
-                    <ItemsControl x:Name="ItemsGrid" Grid.Column="1"
-                                  Focusable="False" FocusVisualStyle="{x:Null}"
-                                  KeyboardNavigation.IsTabStop="False">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <UniformGrid Rows="3" Columns="3"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                    </ItemsControl>
+                        <ItemsControl x:Name="ItemsGrid" Grid.Column="1"
+                                      Focusable="False" FocusVisualStyle="{x:Null}"
+                                      KeyboardNavigation.IsTabStop="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Rows="3" Columns="3"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
 
-                    <Button x:Name="NextButton" Grid.Column="2" Style="{StaticResource ChevronButton}"
-                            Click="Next_Click">
-                        <Path Data="M 2,2 L 12,11 L 2,20" Stroke="{Binding Foreground,
-                              RelativeSource={RelativeSource AncestorType=Button}}"
-                              StrokeThickness="2.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-                    </Button>
+                        <Button x:Name="NextButton" Grid.Column="2" Style="{StaticResource ChevronButton}"
+                                Click="Next_Click">
+                            <Path Data="M 2,2 L 12,11 L 2,20" Stroke="{Binding Foreground,
+                                  RelativeSource={RelativeSource AncestorType=Button}}"
+                                  StrokeThickness="2.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                        </Button>
+                    </Grid>
+
+                    <!-- File list: a vertical list that grows in height (MaxHeight set in code to the
+                         monitor's working height) and then scrolls. Shown only in List view. -->
+                    <ScrollViewer x:Name="ListContent" Visibility="Collapsed" Focusable="False"
+                                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="ItemsList" Focusable="False" FocusVisualStyle="{x:Null}"
+                                      KeyboardNavigation.IsTabStop="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><StackPanel/></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </ScrollViewer>
                 </Grid>
                 </DockPanel>
             </Grid>

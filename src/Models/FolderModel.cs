@@ -2,6 +2,15 @@ using System.IO;
 
 namespace GlassFolders.Models;
 
+/// <summary>How a folder presents its contents when opened.</summary>
+public enum FolderView
+{
+    /// <summary>iOS/Android-style paged 3x3 icon grid (the default, best for apps).</summary>
+    Grid,
+    /// <summary>A vertical, Explorer-style list that grows in height (best for files, e.g. RDP).</summary>
+    List,
+}
+
 /// <summary>One shortcut inside a folder. The .lnk is the source of truth.</summary>
 public sealed class ShortcutItem
 {
@@ -43,6 +52,9 @@ public sealed class FolderModel
 
     /// <summary>Where the panel opens: 0..8 = a 3x3 screen grid (row*3+col); 4 = center.</summary>
     public int PanelPosition { get; set; } = 4;
+
+    /// <summary>Grid (app tiles) or List (Explorer-style file list that grows in height).</summary>
+    public FolderView View { get; set; } = FolderView.Grid;
 
     /// <summary>Which monitor the panel opens on. Null/empty = "same monitor as the folder icon"
     /// (the default). Otherwise the chosen monitor's device name (e.g. \\.\DISPLAY3).</summary>
