@@ -876,7 +876,7 @@ public partial class ExpandedPanelWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(12, 0, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
-            ToolTip = item.DisplayName,
+            // No hover tooltip on file rows (user preference).
         };
         System.Windows.Media.TextOptions.SetTextFormattingMode(label, System.Windows.Media.TextFormattingMode.Display);
 
