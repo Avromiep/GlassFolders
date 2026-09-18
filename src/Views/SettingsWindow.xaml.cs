@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using GlassFolders.Services;
 
@@ -24,7 +27,133 @@ public partial class SettingsWindow : Window
         SourceInitialized += (_, _) => Theming.ApplyGlass(this, Theming.IsDark());
         VersionText.Text = $"Version {App.AppVersion}";
         StartupCheck.IsChecked = StartupManager.IsEnabled;
+        UpdateAppearanceUI();
         _loaded = true;
+    }
+
+    // ---- File folder appearance (frosted vs plain, with live preview) ----
+
+    private void ChooseFrosted(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    { AppSettings.PlainFileList = false; UpdateAppearanceUI(); }
+
+    private void ChoosePlain(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    { AppSettings.PlainFileList = true; UpdateAppearanceUI(); }
+
+    private void UpdateAppearanceUI()
+    {
+        bool plain = AppSettings.PlainFileList;
+        var accent = (Brush)Resources["Accent"];
+        var accentText = (Brush)Resources["AccentText"];
+        var ctrl = (Brush)Resources["CtrlBg"];
+        var fg = (Brush)Resources["Fg"];
+        FrostedChip.Background = plain ? ctrl : accent;
+        PlainChip.Background = plain ? accent : ctrl;
+        FrostedChipText.Foreground = plain ? fg : accentText;
+        PlainChipText.Foreground = plain ? accentText : fg;
+        BuildAppearancePreview(plain);
+    }
+
+    private void BuildAppearancePreview(bool plain)
+    {
+        bool dark = Theming.IsDark();
+        var wall = WallpaperBrush();
+
+        var host = new Grid
+        {
+            Background = wall ?? (Brush)new LinearGradientBrush(
+                (Color)ColorConverter.ConvertFromString("#3B4252")!,
+                (Color)ColorConverter.ConvertFromString("#20242C")!, 45),
+        };
+
+        var panel = new Border
+        {
+            Width = 300,
+            Height = 150,
+            CornerRadius = new CornerRadius(16),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            ClipToBounds = true,
+            BorderThickness = new Thickness(1),
+            Clip = new RectangleGeometry(new Rect(0, 0, 300, 150), 16, 16),
+            Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 4, Opacity = 0.3, Color = Colors.Black },
+        };
+        var inner = new Grid();
+        Brush fg;
+        if (plain)
+        {
+            panel.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(dark ? "#1E2024" : "#F7F8FA")!);
+            panel.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(dark ? "#3A3D42" : "#E2E5EA")!);
+            fg = new SolidColorBrush((Color)ColorConverter.ConvertFromString(dark ? "#F2F5F7" : "#15181D")!);
+        }
+        else
+        {
+            if (wall?.ImageSource != null)
+                inner.Children.Add(new Image
+                {
+                    Source = wall.ImageSource,
+                    Stretch = Stretch.UniformToFill,
+                    Effect = new BlurEffect { Radius = 22, KernelType = KernelType.Gaussian },
+                });
+            inner.Children.Add(new Border { Background = Brushes.White, Opacity = 0.5 });
+            panel.Background = Brushes.Transparent;
+            panel.BorderBrush = new SolidColorBrush(Color.FromArgb(0xA0, 0xFF, 0xFF, 0xFF));
+            fg = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#15181D")!);
+        }
+
+        var content = new StackPanel { Margin = new Thickness(16, 12, 16, 12) };
+        content.Children.Add(new TextBlock
+        {
+            Text = "RDP Servers",
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 13,
+            Foreground = fg,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 8),
+        });
+        foreach (var n in new[] { "ACME-DC01", "ACME-SQL", "Finance-Server" })
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2, 3, 2, 3) };
+            row.Children.Add(new Border
+            {
+                Width = 16,
+                Height = 16,
+                CornerRadius = new CornerRadius(4),
+                Background = (Brush)Resources["Accent"],
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            row.Children.Add(new TextBlock
+            {
+                Text = n,
+                Foreground = fg,
+                FontSize = 12.5,
+                Margin = new Thickness(10, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            content.Children.Add(row);
+        }
+        inner.Children.Add(content);
+        panel.Child = inner;
+        host.Children.Add(panel);
+        PreviewHost.Child = host;
+    }
+
+    private static ImageBrush? WallpaperBrush()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop");
+            if (key?.GetValue("WallPaper") as string is not { Length: > 0 } path
+                || !System.IO.File.Exists(path)) return null;
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.UriSource = new Uri(path);
+            bmp.DecodePixelWidth = 600;
+            bmp.EndInit();
+            bmp.Freeze();
+            return new ImageBrush(bmp) { Stretch = Stretch.UniformToFill };
+        }
+        catch { return null; }
     }
 
     private void Startup_Changed(object sender, RoutedEventArgs e)

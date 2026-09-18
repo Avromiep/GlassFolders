@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.38";
+    public const string AppVersion = "0.3.39";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -120,6 +120,41 @@ public partial class App : Application
         if (e.Args.Length >= 1 && e.Args[0].Equals("--shotmgr", StringComparison.OrdinalIgnoreCase))
         {
             StartShotManager(e.Args.Length >= 2 ? e.Args[1] : "manager.png");
+            return;
+        }
+
+        if (e.Args.Length >= 1 && e.Args[0].Equals("--shotsettings", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                _store = new FolderStore();
+                var win = new Views.SettingsWindow(_store, () => { })
+                { WindowStartupLocation = WindowStartupLocation.Manual, Left = -32000, Top = 80 };
+                win.Show();
+                var outPng = e.Args.Length >= 2 ? e.Args[1] : "settings.png";
+                var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+                timer.Tick += (_, _) =>
+                {
+                    timer.Stop();
+                    try
+                    {
+                        var root = (System.Windows.FrameworkElement)win.Content;
+                        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                            (int)root.ActualWidth, (int)root.ActualHeight, 96, 96,
+                            System.Windows.Media.PixelFormats.Pbgra32);
+                        rtb.Render(root);
+                        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+                        using var fs = File.Create(outPng);
+                        enc.Save(fs);
+                    }
+                    catch (Exception ex) { File.WriteAllText(outPng + ".log", ex.ToString()); }
+                    win.Close();
+                    Shutdown();
+                };
+                timer.Start();
+            }
+            catch (Exception ex) { LogCrash("shotsettings", ex); Shutdown(); }
             return;
         }
 

@@ -104,7 +104,17 @@ public static class DesktopIntegration
     {
         var lnkPath = DesktopLnkPathFor(folderName);
         try { if (File.Exists(lnkPath)) File.Delete(lnkPath); } catch { }
-        RefreshIcon(lnkPath);
+        // Tell the shell the item was DELETED so Explorer drops the icon immediately. A plain
+        // "update" notification can leave a stale/phantom icon behind on the desktop.
+        NotifyDeleted(lnkPath);
+    }
+
+    /// <summary>Notify the shell that <paramref name="path"/> was deleted (removes a stale icon).</summary>
+    public static void NotifyDeleted(string path)
+    {
+        IntPtr p = Marshal.StringToHGlobalUni(path);
+        try { SHChangeNotify(SHCNE_DELETE, SHCNF_PATHW | SHCNF_FLUSH, p, IntPtr.Zero); }
+        finally { Marshal.FreeHGlobal(p); }
     }
 
     /// <summary>Tell the shell that this specific item changed so Explorer repaints just its icon.

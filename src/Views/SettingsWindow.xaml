@@ -124,6 +124,32 @@
                 </StackPanel>
             </Border>
 
+            <!-- File folder appearance -->
+            <Border Style="{StaticResource Section}">
+                <StackPanel>
+                    <TextBlock Text="File folder appearance" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Fg}" Margin="0,0,0,4"/>
+                    <TextBlock Foreground="{DynamicResource FgDim}" FontSize="12.5" TextWrapping="Wrap"
+                               Margin="0,0,0,12"
+                               Text="How folders set to open as a file list look. Frosted glass matches the rest of the app; Plain is a cleaner, modern panel that follows your Windows light/dark theme."/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <Border x:Name="FrostedChip" Cursor="Hand" CornerRadius="9" Padding="14,7"
+                                BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"
+                                MouseLeftButtonUp="ChooseFrosted">
+                            <TextBlock x:Name="FrostedChipText" Text="Frosted glass" FontSize="12.5"/>
+                        </Border>
+                        <Border x:Name="PlainChip" Cursor="Hand" CornerRadius="9" Padding="14,7" Margin="10,0,0,0"
+                                BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"
+                                MouseLeftButtonUp="ChoosePlain">
+                            <TextBlock x:Name="PlainChipText" Text="Plain" FontSize="12.5"/>
+                        </Border>
+                    </StackPanel>
+                    <!-- Live preview (built in code; updates when you toggle) -->
+                    <Border x:Name="PreviewHost" Height="182" CornerRadius="12" ClipToBounds="True"
+                            BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"/>
+                </StackPanel>
+            </Border>
+
             <!-- Updates -->
             <Border Style="{StaticResource Section}">
                 <StackPanel>

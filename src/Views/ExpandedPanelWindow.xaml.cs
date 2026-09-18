@@ -44,6 +44,11 @@ public partial class ExpandedPanelWindow : Window
     // back-button hint reuses a cropped slice of it so its frost matches the folder exactly.
     private System.Windows.Media.Imaging.BitmapSource? _frostBmp;
 
+    // Appearance: dark text on frost by default; the plain (modern light/dark) look for file-list
+    // folders swaps these. _frostBorderBrush is the glass rim captured from XAML so we can restore it.
+    private Brush _panelFg = new SolidColorBrush(Color.FromRgb(0x15, 0x18, 0x1D));
+    private Brush? _frostBorderBrush;
+
     /// <summary>True while the panel is actually shown to the user.</summary>
     public bool IsOpen => _open;
 
@@ -80,6 +85,8 @@ public partial class ExpandedPanelWindow : Window
         _store = store;
         ShowActivated = false;   // the one-time warm-up Show must not steal focus
         InitializeComponent();
+
+        _frostBorderBrush = Frost.BorderBrush;   // remember the glass rim to restore after plain mode
 
         DotActive.Freeze();
         DotInactive.Freeze();
@@ -166,6 +173,8 @@ public partial class ExpandedPanelWindow : Window
         TitleText.Text = folder.Name;
         EndEdit();                         // in case a rename box was left open on a prior folder
         ApplyFrostiness(folder.Frostiness);
+        bool plainList = folder.View == FolderView.List && Services.AppSettings.PlainFileList;
+        ApplyAppearance(plainList);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         RenderContent();
@@ -178,11 +187,11 @@ public partial class ExpandedPanelWindow : Window
         if (!popIn) PositionNearCursor();
         UpdateLayout();
 
-        // Grab + blur the live desktop behind the panel. Skipped entirely on a true in-place switch
-        // (window opaque). Otherwise CaptureAndBlurBackground decides between a fresh grab (settled
-        // idle -> window transparent -> clean, current) and reusing the last grab (rapid same-spot
-        // switch -> old panel may still be on screen -> avoid self-capture).
-        if (!wasVisible) CaptureAndBlurBackground();
+        // Grab + blur the live desktop behind the panel (frosted look only). Skipped for the plain
+        // look (solid background). For frosted, grab when opening fresh OR when the background isn't
+        // already a blur (e.g. switching from a plain file folder to a frosted one).
+        if (!plainList && (!wasVisible || Frost.Background is not ImageBrush))
+            CaptureAndBlurBackground();
         long tCapture = sw.ElapsedMilliseconds - tRender;
 
         SetClickThrough(false);            // interactive now
@@ -559,6 +568,36 @@ public partial class ExpandedPanelWindow : Window
         return null;
     }
 
+    /// <summary>Switches the panel between the frosted-glass look (default) and the plain, modern
+    /// light/dark look used for file-list folders when that appearance is chosen in Settings.</summary>
+    private void ApplyAppearance(bool plainList)
+    {
+        if (plainList)
+        {
+            bool dark = Services.Theming.IsDark();
+            var bg = dark ? Color.FromRgb(0x1E, 0x20, 0x24) : Color.FromRgb(0xF7, 0xF8, 0xFA);
+            var border = dark ? Color.FromRgb(0x3A, 0x3D, 0x42) : Color.FromRgb(0xE2, 0xE5, 0xEA);
+            Frost.Background = new SolidColorBrush(bg);   // solid panel, no blurred wallpaper
+            TintLayer.Opacity = 0;                        // hide the frost veil
+            Frost.BorderBrush = new SolidColorBrush(border);
+            _panelFg = new SolidColorBrush(dark ? Color.FromRgb(0xF2, 0xF5, 0xF7) : Color.FromRgb(0x15, 0x18, 0x1D));
+            Resources["ListRowHover"] = new SolidColorBrush(dark
+                ? Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x14, 0x00, 0x00, 0x00));
+            Resources["ListRowPress"] = new SolidColorBrush(dark
+                ? Color.FromArgb(0x3A, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x22, 0x00, 0x00, 0x00));
+        }
+        else
+        {
+            // Frosted: TintLayer opacity was already set by ApplyFrostiness; restore the glass rim
+            // and dark text; Frost.Background is (re)painted by CaptureAndBlurBackground.
+            if (_frostBorderBrush != null) Frost.BorderBrush = _frostBorderBrush;
+            _panelFg = new SolidColorBrush(Color.FromRgb(0x15, 0x18, 0x1D));
+            Resources["ListRowHover"] = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
+            Resources["ListRowPress"] = new SolidColorBrush(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF));
+        }
+        TitleText.Foreground = _panelFg;
+    }
+
     /// <summary>Maps 0..100 frostiness to tint opacity and blur strength.</summary>
     private void ApplyFrostiness(int frostiness)
     {
@@ -833,7 +872,7 @@ public partial class ExpandedPanelWindow : Window
         {
             Text = item.DisplayName,
             FontSize = 13.5,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x15, 0x18, 0x1D)),
+            Foreground = _panelFg,   // dark on frost / themed on plain
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(12, 0, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,

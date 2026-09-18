@@ -21,6 +21,10 @@
         Drop="Window_Drop">
 
     <Window.Resources>
+        <!-- Row hover/press tints for the file list; swapped in code for the plain (light/dark) look. -->
+        <SolidColorBrush x:Key="ListRowHover" Color="#33FFFFFF"/>
+        <SolidColorBrush x:Key="ListRowPress" Color="#55FFFFFF"/>
+
         <!-- Minimal chevron nav button: just an arrow glyph that brightens on hover -->
         <Style x:Key="ChevronButton" TargetType="Button">
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -143,10 +147,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="row" Property="Background" Value="#33FFFFFF"/>
+                                <Setter TargetName="row" Property="Background" Value="{DynamicResource ListRowHover}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="row" Property="Background" Value="#55FFFFFF"/>
+                                <Setter TargetName="row" Property="Background" Value="{DynamicResource ListRowPress}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
