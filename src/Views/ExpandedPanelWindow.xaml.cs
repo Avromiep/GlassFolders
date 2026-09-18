@@ -822,7 +822,7 @@ public partial class ExpandedPanelWindow : Window
         {
             Width = 28,
             Height = 28,
-            Source = IconForItem(item),
+            Source = IconForItem(item, stripArrow: true),
             Stretch = Stretch.Uniform,
             SnapsToDevicePixels = true,
             VerticalAlignment = VerticalAlignment.Center,
@@ -1002,7 +1002,7 @@ public partial class ExpandedPanelWindow : Window
             var reloaded = _store.FindByName(FolderStore.Sanitize(newName));
             if (reloaded != null) _folder = reloaded; // dir moved, so items' paths changed
             TitleText.Text = _folder.Name;
-            RenderPage();
+            RenderContent();
         }
         catch { }
     }
@@ -1081,7 +1081,7 @@ public partial class ExpandedPanelWindow : Window
     /// <summary>Tile icon: for a nested folder, render its LIVE closed-folder composite (so it
     /// matches the desktop icon and never goes stale when composites are regenerated); otherwise
     /// the shortcut's own icon.</summary>
-    private System.Windows.Media.ImageSource? IconForItem(ShortcutItem item)
+    private System.Windows.Media.ImageSource? IconForItem(ShortcutItem item, bool stripArrow = false)
     {
         var name = NestedFolderNameOf(item.LnkPath);
         if (name != null && _store.FindByName(name) is FolderModel nf)
@@ -1090,6 +1090,18 @@ public partial class ExpandedPanelWindow : Window
             // icon is downscaled rather than upscaled — downscaling stays crisp, upscaling blurs.
             try { return ImageHelper.ToImageSource(IconComposer.RenderPreview(nf.FirstPagePaths(), 128)); }
             catch { }
+        }
+        // File-list rows: draw the underlying file's OWN icon (no shortcut-arrow overlay) so RDP /
+        // document rows look clean. This only changes how THIS app renders its list rows — it does
+        // not touch the real .lnk files or any shortcut arrows elsewhere on the system.
+        if (stripArrow)
+        {
+            var target = ShellLink.ResolveTarget(item.LnkPath);
+            if (!string.IsNullOrEmpty(target) && System.IO.File.Exists(target))
+            {
+                var ico = ImageHelper.LoadIcon(target, 128);
+                if (ico != null) return ico;
+            }
         }
         return ImageHelper.LoadIcon(item.LnkPath, 128);
     }
