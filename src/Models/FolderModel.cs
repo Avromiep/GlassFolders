@@ -11,6 +11,18 @@ public enum FolderView
     List,
 }
 
+/// <summary>Sort order for a file-list folder.</summary>
+public enum FolderSort
+{
+    /// <summary>Keep the order items were added/dragged in (the default).</summary>
+    Custom,
+    NameAsc,
+    NameDesc,
+    /// <summary>By the target file's last-modified time, newest first.</summary>
+    ModifiedNewest,
+    ModifiedOldest,
+}
+
 /// <summary>One shortcut inside a folder. The .lnk is the source of truth.</summary>
 public sealed class ShortcutItem
 {
@@ -55,6 +67,9 @@ public sealed class FolderModel
 
     /// <summary>Grid (app tiles) or List (Explorer-style file list that grows in height).</summary>
     public FolderView View { get; set; } = FolderView.Grid;
+
+    /// <summary>Sort order for the file list. Default = Custom (the order items were added).</summary>
+    public FolderSort Sort { get; set; } = FolderSort.Custom;
 
     /// <summary>Which monitor the panel opens on. Null/empty = "same monitor as the folder icon"
     /// (the default). Otherwise the chosen monitor's device name (e.g. \\.\DISPLAY3).</summary>

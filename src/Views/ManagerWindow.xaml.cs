@@ -566,6 +566,7 @@ public partial class ManagerWindow : Window
             UpdateFrostLabel(_current.Frostiness);
             OnDesktopCheck.IsChecked = _current.OnDesktop;
             FileListCheck.IsChecked = _current.View == FolderView.List;
+            SortCombo.SelectedIndex = (int)_current.Sort;
 
             UpdateGlass(_current.Frostiness);
             UpdatePositionSelection();
@@ -658,6 +659,13 @@ public partial class ManagerWindow : Window
         if (_loadingSettings || _current == null) return;
         _current.View = FileListCheck.IsChecked == true ? FolderView.List : FolderView.Grid;
         _store.SaveSettings(_current);
+    }
+
+    private void Sort_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingSettings || _current == null) return;
+        _current.Sort = (FolderSort)Math.Clamp(SortCombo.SelectedIndex, 0, 4);
+        _store.SaveSettings(_current);   // persisted to settings.txt -> survives reopen/reboot
     }
 
     private void LoadWallpaper()

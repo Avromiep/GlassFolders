@@ -336,6 +336,18 @@
                                 <CheckBox x:Name="FileListCheck" Content="Open as a file list (for RDP / documents)"
                                           Margin="0,8,0,0" VerticalAlignment="Center"
                                           Foreground="{DynamicResource Fg}" Click="FileList_Click"/>
+                                <StackPanel Orientation="Horizontal" Margin="24,8,0,0"
+                                            IsEnabled="{Binding IsChecked, ElementName=FileListCheck}">
+                                    <TextBlock Text="Sort" VerticalAlignment="Center" FontSize="12.5"
+                                               Foreground="{DynamicResource FgDim}" Margin="0,0,10,0"/>
+                                    <ComboBox x:Name="SortCombo" Width="190" SelectionChanged="Sort_Changed">
+                                        <ComboBoxItem Content="As I added them"/>
+                                        <ComboBoxItem Content="Name (A→Z)"/>
+                                        <ComboBoxItem Content="Name (Z→A)"/>
+                                        <ComboBoxItem Content="Date modified (newest)"/>
+                                        <ComboBoxItem Content="Date modified (oldest)"/>
+                                    </ComboBox>
+                                </StackPanel>
                             </StackPanel>
 
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">

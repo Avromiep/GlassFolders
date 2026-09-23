@@ -835,10 +835,40 @@ public partial class ExpandedPanelWindow : Window
     private void RenderList()
     {
         ItemsList.Items.Clear();
-        foreach (var item in _folder.Items)
+        foreach (var item in SortedItems())
             ItemsList.Items.Add(BuildListRow(item));
         // Grow with the file count up to ~the monitor's height, then the ScrollViewer takes over.
         ListContent.MaxHeight = ComputeListMaxHeight();
+    }
+
+    /// <summary>The folder's items in the chosen sort order (Custom = as added).</summary>
+    private IEnumerable<ShortcutItem> SortedItems()
+    {
+        switch (_folder.Sort)
+        {
+            case FolderSort.NameAsc:
+                return _folder.Items.OrderBy(i => i.DisplayName, StringComparer.CurrentCultureIgnoreCase);
+            case FolderSort.NameDesc:
+                return _folder.Items.OrderByDescending(i => i.DisplayName, StringComparer.CurrentCultureIgnoreCase);
+            case FolderSort.ModifiedNewest:
+                return _folder.Items.OrderByDescending(TargetModified);
+            case FolderSort.ModifiedOldest:
+                return _folder.Items.OrderBy(TargetModified);
+            default:
+                return _folder.Items;   // Custom = the order they were added
+        }
+    }
+
+    private static DateTime TargetModified(ShortcutItem item)
+    {
+        try
+        {
+            var t = ShellLink.ResolveTarget(item.LnkPath);
+            if (!string.IsNullOrEmpty(t) && System.IO.File.Exists(t))
+                return System.IO.File.GetLastWriteTimeUtc(t);
+        }
+        catch { }
+        return DateTime.MinValue;
     }
 
     /// <summary>Cap for the file list = most of the target monitor's working height, leaving room

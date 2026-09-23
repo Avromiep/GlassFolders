@@ -88,6 +88,8 @@ public sealed class FolderStore
             else if (key == "view")
                 model.View = val.Equals("list", StringComparison.OrdinalIgnoreCase)
                     ? FolderView.List : FolderView.Grid;
+            else if (key == "sort")
+                model.Sort = Enum.TryParse<FolderSort>(val, ignoreCase: true, out var s) ? s : FolderSort.Custom;
         }
     }
 
@@ -102,6 +104,7 @@ public sealed class FolderStore
             $"monitor={folder.PanelMonitor}",
             $"monitorrect={folder.PanelMonitorRect}",
             $"view={(folder.View == FolderView.List ? "list" : "grid")}",
+            $"sort={folder.Sort}",
         });
     }
 
