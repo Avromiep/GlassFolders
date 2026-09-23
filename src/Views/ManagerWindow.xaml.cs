@@ -37,6 +37,7 @@ public partial class ManagerWindow : Window
         ApplyTheme(_dark);
         BuildPositionGrid();
         BuildMonitorMap();
+        BuildSortOptions();
         SourceInitialized += (_, _) => ApplyGlass();
         LoadWallpaper();
         ReloadFolders();
@@ -566,7 +567,7 @@ public partial class ManagerWindow : Window
             UpdateFrostLabel(_current.Frostiness);
             OnDesktopCheck.IsChecked = _current.OnDesktop;
             FileListCheck.IsChecked = _current.View == FolderView.List;
-            SortCombo.SelectedIndex = (int)_current.Sort;
+            UpdateSortSelection();
 
             UpdateGlass(_current.Frostiness);
             UpdatePositionSelection();
@@ -661,11 +662,67 @@ public partial class ManagerWindow : Window
         _store.SaveSettings(_current);
     }
 
-    private void Sort_Changed(object sender, SelectionChangedEventArgs e)
+    // ---- Sort dropdown (custom, themed) ----
+
+    private static readonly string[] SortLabels =
+        { "As I added them", "Name (A→Z)", "Name (Z→A)", "Date modified (newest)", "Date modified (oldest)" };
+    private readonly Border[] _sortRows = new Border[5];
+
+    private void BuildSortOptions()
     {
-        if (_loadingSettings || _current == null) return;
-        _current.Sort = (FolderSort)Math.Clamp(SortCombo.SelectedIndex, 0, 4);
+        // Near-solid dropdown background so it reads over the acrylic, themed light/dark.
+        SortPopupPanel.Background = new SolidColorBrush(_dark
+            ? Color.FromRgb(0x2A, 0x2E, 0x36) : Color.FromRgb(0xFF, 0xFF, 0xFF));
+
+        SortOptions.Children.Clear();
+        for (int i = 0; i < SortLabels.Length; i++)
+        {
+            int idx = i;
+            var row = new Border
+            {
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(11, 7, 11, 7),
+                Margin = new Thickness(1),
+                Cursor = Cursors.Hand,
+                Background = Brushes.Transparent,
+                Child = new TextBlock
+                {
+                    Text = SortLabels[i],
+                    FontSize = 12.5,
+                    Foreground = (Brush)Resources["Fg"],
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            };
+            row.MouseEnter += (_, _) => row.Background = (Brush)Resources["Hover"];
+            row.MouseLeave += (_, _) => row.Background =
+                idx == (int)(_current?.Sort ?? FolderSort.Custom) ? (Brush)Resources["Sel"] : Brushes.Transparent;
+            row.MouseLeftButtonUp += (_, _) => { SelectSort(idx); SortPopup.IsOpen = false; };
+            _sortRows[i] = row;
+            SortOptions.Children.Add(row);
+        }
+    }
+
+    private void SortButton_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (_current == null) return;
+        SortPopup.IsOpen = true;
+    }
+
+    private void SelectSort(int idx)
+    {
+        if (_current == null) return;
+        _current.Sort = (FolderSort)Math.Clamp(idx, 0, 4);
         _store.SaveSettings(_current);   // persisted to settings.txt -> survives reopen/reboot
+        UpdateSortSelection();
+    }
+
+    private void UpdateSortSelection()
+    {
+        int sel = (int)(_current?.Sort ?? FolderSort.Custom);
+        SortButtonText.Text = SortLabels[Math.Clamp(sel, 0, 4)];
+        for (int i = 0; i < _sortRows.Length; i++)
+            if (_sortRows[i] != null)
+                _sortRows[i].Background = i == sel ? (Brush)Resources["Sel"] : Brushes.Transparent;
     }
 
     private void LoadWallpaper()

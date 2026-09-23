@@ -340,13 +340,31 @@
                                             IsEnabled="{Binding IsChecked, ElementName=FileListCheck}">
                                     <TextBlock Text="Sort" VerticalAlignment="Center" FontSize="12.5"
                                                Foreground="{DynamicResource FgDim}" Margin="0,0,10,0"/>
-                                    <ComboBox x:Name="SortCombo" Width="190" SelectionChanged="Sort_Changed">
-                                        <ComboBoxItem Content="As I added them"/>
-                                        <ComboBoxItem Content="Name (A→Z)"/>
-                                        <ComboBoxItem Content="Name (Z→A)"/>
-                                        <ComboBoxItem Content="Date modified (newest)"/>
-                                        <ComboBoxItem Content="Date modified (oldest)"/>
-                                    </ComboBox>
+                                    <!-- Custom modern dropdown (themed dark/light), built in code -->
+                                    <Border x:Name="SortButton" Width="196" CornerRadius="8" Padding="11,6"
+                                            Background="{DynamicResource CtrlBg}" BorderBrush="{DynamicResource CardBorder}"
+                                            BorderThickness="1" Cursor="Hand" MouseLeftButtonUp="SortButton_Click">
+                                        <Grid>
+                                            <TextBlock x:Name="SortButtonText" Foreground="{DynamicResource Fg}"
+                                                       FontSize="12.5" VerticalAlignment="Center"/>
+                                            <Path Data="M0,0 L4,4 L8,0" Stroke="{DynamicResource FgDim}"
+                                                  StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                  HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                    <Popup x:Name="SortPopup" StaysOpen="False" AllowsTransparency="True"
+                                           Placement="Bottom" PlacementTarget="{Binding ElementName=SortButton}"
+                                           VerticalOffset="4" PopupAnimation="Fade">
+                                        <Border x:Name="SortPopupPanel" CornerRadius="10" BorderThickness="1"
+                                                BorderBrush="{DynamicResource CardBorder}" Padding="5"
+                                                MinWidth="196" Margin="0,0,10,10">
+                                            <Border.Effect>
+                                                <DropShadowEffect BlurRadius="16" ShadowDepth="4"
+                                                                  Opacity="0.32" Color="#000000"/>
+                                            </Border.Effect>
+                                            <StackPanel x:Name="SortOptions"/>
+                                        </Border>
+                                    </Popup>
                                 </StackPanel>
                             </StackPanel>
 
