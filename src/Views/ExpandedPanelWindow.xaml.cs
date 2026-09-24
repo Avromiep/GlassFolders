@@ -847,9 +847,9 @@ public partial class ExpandedPanelWindow : Window
         switch (_folder.Sort)
         {
             case FolderSort.NameAsc:
-                return _folder.Items.OrderBy(i => i.DisplayName, StringComparer.CurrentCultureIgnoreCase);
+                return _folder.Items.OrderBy(i => i.DisplayName, Services.NaturalStringComparer.Instance);
             case FolderSort.NameDesc:
-                return _folder.Items.OrderByDescending(i => i.DisplayName, StringComparer.CurrentCultureIgnoreCase);
+                return _folder.Items.OrderByDescending(i => i.DisplayName, Services.NaturalStringComparer.Instance);
             case FolderSort.ModifiedNewest:
                 return _folder.Items.OrderByDescending(TargetModified);
             case FolderSort.ModifiedOldest:
@@ -1212,6 +1212,10 @@ public partial class ExpandedPanelWindow : Window
     {
         if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
         var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+        // Multi-file drops arrive in an arbitrary OS order; sort naturally so a select-all drag
+        // lands in the expected (Explorer-like) order.
+        Array.Sort(files, (a, b) => NativeMethods.StrCmpLogicalW(
+            System.IO.Path.GetFileName(a), System.IO.Path.GetFileName(b)));
         foreach (var f in files)
         {
             try { _store.AddShortcut(_folder, f); } catch { }

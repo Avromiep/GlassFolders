@@ -194,6 +194,15 @@ public sealed class FolderStore
         SaveOrder(folder);
     }
 
+    /// <summary>Removes every shortcut from the folder but keeps the folder (and its settings).</summary>
+    public void ClearFolder(FolderModel folder)
+    {
+        foreach (var it in folder.Items.ToList())
+            try { File.Delete(it.LnkPath); } catch { }
+        folder.Items.Clear();
+        SaveOrder(folder);
+    }
+
     public void Move(FolderModel folder, int from, int to)
     {
         if (from < 0 || from >= folder.Items.Count) return;

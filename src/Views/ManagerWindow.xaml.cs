@@ -296,9 +296,24 @@ public partial class ManagerWindow : Window
         catch { return null; }
     }
 
+    /// <summary>Called by the app when a folder's contents changed outside the manager (e.g. files
+    /// dropped on its desktop icon) so the open manager view doesn't go stale.</summary>
+    public void NotifyFolderChanged(string name)
+    {
+        if (_current == null || !string.Equals(_current.Name, name, StringComparison.OrdinalIgnoreCase)) return;
+        var reloaded = _store.FindByName(_current.Name);
+        if (reloaded == null) return;
+        _current = reloaded;
+        RefreshApps();
+        RefreshFolderMiniIcon();
+    }
+
     private void FolderList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         _current = (FolderList.SelectedItem as FolderVM)?.Model;
+        // Always show the folder's current on-disk contents (it may have changed since the list
+        // was built — e.g. files dropped on its desktop icon).
+        if (_current != null) _current = _store.FindByName(_current.Name) ?? _current;
         ContentPane.IsEnabled = _current != null;
 
         if (_current == null)
@@ -510,6 +525,21 @@ public partial class ManagerWindow : Window
         ReloadFolders();
     }
 
+    private void Clear_Click(object sender, RoutedEventArgs e)
+    {
+        if (_current == null) return;
+        if (_current.Items.Count == 0) return;
+        if (!ModernDialogWindow.Confirm(this, "Clear this folder?",
+                $"Remove all {_current.Items.Count} shortcut(s) from “{_current.Name}”? " +
+                "The folder stays; your original files/apps are not deleted.",
+                okText: "Clear", cancelText: "Cancel", danger: true))
+            return;
+        _store.ClearFolder(_current);
+        _store.RegenerateAndPublish(_current);
+        RefreshApps();
+        RefreshFolderMiniIcon();
+    }
+
     private void Add_Click(object sender, RoutedEventArgs e)
     {
         if (_current == null) return;
@@ -528,8 +558,10 @@ public partial class ManagerWindow : Window
     private void AddFiles(IEnumerable<string> files)
     {
         if (_current == null) return;
+        // Multi-file selections arrive in an arbitrary OS order; add them in natural name order.
+        var ordered = files.OrderBy(System.IO.Path.GetFileName, NaturalStringComparer.Instance);
         var failed = new List<string>();
-        foreach (var f in files)
+        foreach (var f in ordered)
             try { _store.AddShortcut(_current, f); }
             catch { failed.Add(System.IO.Path.GetFileName(f)); }
         _store.RegenerateAndPublish(_current);
