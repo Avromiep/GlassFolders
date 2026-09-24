@@ -461,11 +461,49 @@ public partial class ManagerWindow : Window
             Math.Abs(p.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
 
         DragDrop.DoDragDrop(AppList, "reorder", DragDropEffects.Move);
+        StopPageDragTimer();
         _dragItem = null;
+    }
+
+    // ---- Drag a tile onto a page arrow to move it to another page ----
+
+    private System.Windows.Threading.DispatcherTimer? _pageDragTimer;
+    private int _pageDragDir;
+
+    private void PageArrow_DragOver(object sender, DragEventArgs e)
+    {
+        if (_dragItem == null) return;   // only while reordering a tile
+        int dir = (sender as FrameworkElement)?.Tag as string == "1" ? 1 : -1;
+        e.Handled = true;
+        if (_pageDragTimer != null && _pageDragDir == dir) return;   // already flipping this way
+        StopPageDragTimer();
+        _pageDragDir = dir;
+        _pageDragTimer = new System.Windows.Threading.DispatcherTimer
+        { Interval = TimeSpan.FromMilliseconds(500) };
+        _pageDragTimer.Tick += (_, _) =>
+        {
+            int pages = Math.Max(1, (int)Math.Ceiling(FilteredList().Count / (double)FolderModel.PageSize));
+            int next = Math.Clamp(_appPage + _pageDragDir, 0, pages - 1);
+            if (next == _appPage) { StopPageDragTimer(); return; }   // reached the first/last page
+            _appPage = next;
+            ApplyAppView();
+            if (_pageDragTimer != null) _pageDragTimer.Interval = TimeSpan.FromMilliseconds(800);
+        };
+        _pageDragTimer.Start();
+    }
+
+    private void PageArrow_DragLeave(object sender, DragEventArgs e) => StopPageDragTimer();
+
+    private void StopPageDragTimer()
+    {
+        _pageDragTimer?.Stop();
+        _pageDragTimer = null;
+        _pageDragDir = 0;
     }
 
     private void AppList_Drop(object sender, DragEventArgs e)
     {
+        StopPageDragTimer();
         if (_current == null || _dragItem == null) return;
         var target = (e.OriginalSource as DependencyObject).FindDataContext<AppVM>();
 

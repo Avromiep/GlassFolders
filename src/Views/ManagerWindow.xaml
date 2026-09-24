@@ -426,9 +426,11 @@
                                 </Grid.ColumnDefinitions>
 
                                 <Button x:Name="MainPrev" Grid.Column="0" Style="{StaticResource GlassArrow}"
-                                        FontSize="30" Content="&#x2039;" Click="MainPrev_Click"/>
+                                        FontSize="30" Content="&#x2039;" Click="MainPrev_Click"
+                                        Tag="-1" AllowDrop="True" DragOver="PageArrow_DragOver" DragLeave="PageArrow_DragLeave"/>
                                 <Button x:Name="MainNext" Grid.Column="2" Style="{StaticResource GlassArrow}"
-                                        FontSize="30" Content="&#x203A;" Click="MainNext_Click"/>
+                                        FontSize="30" Content="&#x203A;" Click="MainNext_Click"
+                                        Tag="1" AllowDrop="True" DragOver="PageArrow_DragOver" DragLeave="PageArrow_DragLeave"/>
 
                                 <DockPanel Grid.Column="1">
                                     <StackPanel x:Name="MainDots" DockPanel.Dock="Bottom" Orientation="Horizontal"
