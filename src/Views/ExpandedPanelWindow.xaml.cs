@@ -931,27 +931,34 @@ public partial class ExpandedPanelWindow : Window
             case FolderSort.ModifiedOldest:
                 return _folder.Items.OrderBy(TargetModified);
             case FolderSort.CreatedNewest:
-                return _folder.Items.OrderByDescending(TargetCreated);
+                return _folder.Items.OrderByDescending(AddedTime);
             case FolderSort.CreatedOldest:
-                return _folder.Items.OrderBy(TargetCreated);
+                return _folder.Items.OrderBy(AddedTime);
             default:
-                return _folder.Items;   // Custom = the order they were added
+                return _folder.Items;   // Custom = the order they were added (appended on add)
         }
     }
 
-    private static DateTime TargetModified(ShortcutItem item) => TargetTime(item, created: false);
-    private static DateTime TargetCreated(ShortcutItem item) => TargetTime(item, created: true);
-
-    private static DateTime TargetTime(ShortcutItem item, bool created)
+    /// <summary>Target file's last-modified time (for the "Date modified" sort).</summary>
+    private static DateTime TargetModified(ShortcutItem item)
     {
         try
         {
             var t = ShellLink.ResolveTarget(item.LnkPath);
             if (!string.IsNullOrEmpty(t) && System.IO.File.Exists(t))
-                return created ? System.IO.File.GetCreationTimeUtc(t) : System.IO.File.GetLastWriteTimeUtc(t);
+                return System.IO.File.GetLastWriteTimeUtc(t);
         }
         catch { }
         return DateTime.MinValue;
+    }
+
+    /// <summary>When the item was ADDED to this Glass folder — the shortcut (.lnk) inside the folder
+    /// is created at add-time, so its creation time is the true "date added" (independent of how old
+    /// the underlying file itself is).</summary>
+    private static DateTime AddedTime(ShortcutItem item)
+    {
+        try { return System.IO.File.GetCreationTimeUtc(item.LnkPath); }
+        catch { return DateTime.MinValue; }
     }
 
     /// <summary>Cap for the file list = most of the target monitor's working height, leaving room
@@ -1295,11 +1302,9 @@ public partial class ExpandedPanelWindow : Window
     {
         if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
         var files = (string[])e.Data.GetData(DataFormats.FileDrop);
-        // Multi-file drops arrive in an arbitrary OS order; sort naturally so a select-all drag
-        // lands in the expected (Explorer-like) order.
-        Array.Sort(files, (a, b) => NativeMethods.StrCmpLogicalW(
-            System.IO.Path.GetFileName(a), System.IO.Path.GetFileName(b)));
-        foreach (var f in files)
+        // Multi-file drops arrive in an arbitrary OS order; add them in the folder's chosen sort
+        // order (name / date added / date modified).
+        foreach (var f in Services.FileSort.OrderPaths(files))
         {
             try { _store.AddShortcut(_folder, f); } catch { }
         }

@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.47";
+    public const string AppVersion = "0.3.48";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -733,11 +733,9 @@ public partial class App : Application
         {
             // Dropping apps onto the closed folder icon: add them and refresh the icon, but
             // DON'T open the panel (the folder shouldn't "launch" just because you dropped on it).
-            // Windows hands multi-file drops in an arbitrary order, so sort the batch naturally
-            // (Explorer-style) — a select-all drag then lands in the expected order.
-            filesToAdd.Sort((a, b) => NativeMethods.StrCmpLogicalW(
-                System.IO.Path.GetFileName(a), System.IO.Path.GetFileName(b)));
-            foreach (var f in filesToAdd)
+            // Windows hands multi-file drops in an arbitrary order, so add them in the folder's
+            // chosen sort order (name / date added / date modified).
+            foreach (var f in Services.FileSort.OrderPaths(filesToAdd))
                 try { _store.AddShortcut(folder, f); } catch { }
             _store.RegenerateAndPublish(folder);
             _manager?.NotifyFolderChanged(openName);  // live-refresh the manager if it's showing this folder

@@ -596,8 +596,9 @@ public partial class ManagerWindow : Window
     private void AddFiles(IEnumerable<string> files)
     {
         if (_current == null) return;
-        // Multi-file selections arrive in an arbitrary OS order; add them in natural name order.
-        var ordered = files.OrderBy(System.IO.Path.GetFileName, NaturalStringComparer.Instance);
+        // Multi-file selections arrive in an arbitrary OS order; add them in the folder's chosen
+        // sort order (name / date added / date modified).
+        var ordered = FileSort.OrderPaths(files);
         var failed = new List<string>();
         foreach (var f in ordered)
             try { _store.AddShortcut(_current, f); }
