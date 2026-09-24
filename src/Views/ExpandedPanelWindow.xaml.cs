@@ -353,6 +353,9 @@ public partial class ExpandedPanelWindow : Window
     private Button? _dragOutButton;
     private Point _dragOutStart;
     private bool _dragOutActive;
+    // Cross-page drag: poll timer follows the cursor and flips pages when held at a side edge.
+    private System.Windows.Threading.DispatcherTimer? _dragPoll;
+    private int _edgeDir, _edgeSinceMs, _lastFlipMs;
     private Window? _dragGhost;
     private UIElement? _dragGhostBadge;
 
@@ -373,41 +376,51 @@ public partial class ExpandedPanelWindow : Window
 
         _dragOutActive = true;
         var item = _dragOutItem;
-        var sourceButton = _dragOutButton;
 
         // Don't let the panel self-close while a topmost ghost briefly appears mid-drag.
         bool priorSuppress = SuppressAutoClose;
         SuppressAutoClose = true;
 
-        // Empty the source slot and lift the icon onto the cursor.
-        if (sourceButton != null) sourceButton.Visibility = Visibility.Hidden;
+        // Lift the icon onto the cursor (its slot shows empty via a full re-render below when needed).
         ShowGhost(item);
         ItemsGrid.GiveFeedback += Drag_GiveFeedback;
         ItemsGrid.QueryContinueDrag += Drag_QueryContinueDrag;
 
+        _edgeDir = 0; _edgeSinceMs = 0; _lastFlipMs = 0;
+        _dragPoll = new System.Windows.Threading.DispatcherTimer
+        { Interval = TimeSpan.FromMilliseconds(110) };
+        _dragPoll.Tick += DragPollTick;
+        _dragPoll.Start();
+
         try { DragDrop.DoDragDrop(ItemsGrid, item, DragDropEffects.Move); } catch { }
 
+        _dragPoll.Stop(); _dragPoll = null;
         ItemsGrid.GiveFeedback -= Drag_GiveFeedback;
         ItemsGrid.QueryContinueDrag -= Drag_QueryContinueDrag;
         CloseGhost();
 
-        // Dropped outside the glass panel -> remove it from the folder (iOS "drag out").
-        // Dropped back inside -> restore the tile (nothing removed).
-        bool removed = false;
+        // Resolve the drop by gesture:
+        //  • dropped ABOVE or BELOW the panel  -> remove it (iOS drag-off)
+        //  • dropped inside (or level with it) -> reorder into that slot on the current page
+        //    (sideways dragging flips pages during the drag, so you can carry it across pages)
         try
         {
             NativeMethods.GetCursorPos(out var c);
-            var tl = Frost.PointToScreen(new Point(0, 0));
-            var src = PresentationSource.FromVisual(this);
-            double sx = src?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-            double sy = src?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
-            double fw = Frost.ActualWidth * sx, fh = Frost.ActualHeight * sy;
-            bool inside = c.x >= tl.X && c.x <= tl.X + fw && c.y >= tl.Y && c.y <= tl.Y + fh;
-            if (!inside) { RemoveItem(item); removed = true; }
+            var r = FrostRectPx();
+            if (r is { } rect && (c.y < rect.T || c.y > rect.B))
+            {
+                _store.RemoveShortcut(_folder, item);
+                _store.RegenerateAndPublish(_folder);
+                if (_pageIndex >= _folder.PageCount) _pageIndex = _folder.PageCount - 1;
+            }
+            else
+            {
+                ReorderTo(item, c.x, c.y);
+            }
         }
         catch { }
 
-        if (!removed && sourceButton != null) sourceButton.Visibility = Visibility.Visible;
+        RenderContent();   // rebuild a clean grid (restores the lifted tile / reflects the new order)
 
         SuppressAutoClose = priorSuppress;
         _dragOutActive = false;
@@ -426,16 +439,49 @@ public partial class ExpandedPanelWindow : Window
     private void Drag_QueryContinueDrag(object sender, QueryContinueDragEventArgs e)
     {
         if (_dragGhost == null || !NativeMethods.GetCursorPos(out var c)) return;
-        MoveGhost(c.x, c.y);
-        // The minus badge only means "let go here to remove" — show it once the cursor leaves
-        // the glass. Inside the folder the drag reads as a plain rearrange, so keep it hidden.
-        if (_dragGhostBadge != null)
-            _dragGhostBadge.Visibility = CursorInsideFrost(c.x, c.y)
-                ? Visibility.Collapsed : Visibility.Visible;
+        UpdateGhostAndBadge(c.x, c.y);
     }
 
-    /// <summary>True if the given screen point (device px) is over the glass panel.</summary>
-    private bool CursorInsideFrost(int px, int py)
+    /// <summary>Polls the cursor during a drag: follows it with the ghost, shows the remove badge in
+    /// the up/down zones, and flips pages when held near the left/right edge (so a tile can be
+    /// carried to another page).</summary>
+    private void DragPollTick(object? sender, EventArgs e)
+    {
+        if (!NativeMethods.GetCursorPos(out var c)) return;
+        UpdateGhostAndBadge(c.x, c.y);
+
+        var r = FrostRectPx();
+        if (r is not { } rect) return;
+        bool verticalOut = c.y < rect.T || c.y > rect.B;
+        const double edge = 60; // device-px band near each side that triggers a page flip
+        int dir = 0;
+        if (!verticalOut)
+        {
+            if (c.x <= rect.L + edge) dir = -1;
+            else if (c.x >= rect.R - edge) dir = +1;
+        }
+
+        int now = Environment.TickCount;
+        if (dir == 0) { _edgeDir = 0; return; }
+        if (dir != _edgeDir) { _edgeDir = dir; _edgeSinceMs = now; return; }
+        if (now - _edgeSinceMs < 450 || now - _lastFlipMs < 650) return;   // dwell + throttle
+        int next = Math.Clamp(_pageIndex + dir, 0, _folder.PageCount - 1);
+        if (next != _pageIndex) { _pageIndex = next; RenderContent(); _lastFlipMs = now; }
+    }
+
+    private void UpdateGhostAndBadge(int px, int py)
+    {
+        MoveGhost(px, py);
+        // The minus badge means "let go to remove" — only in the up/down zones now (sideways is
+        // page navigation, not removal).
+        var r = FrostRectPx();
+        if (_dragGhostBadge != null && r is { } rect)
+            _dragGhostBadge.Visibility = (py < rect.T || py > rect.B)
+                ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>The glass panel's rectangle in device pixels (screen space).</summary>
+    private (double L, double T, double R, double B)? FrostRectPx()
     {
         try
         {
@@ -443,10 +489,40 @@ public partial class ExpandedPanelWindow : Window
             var src = PresentationSource.FromVisual(this);
             double sx = src?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
             double sy = src?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
-            double fw = Frost.ActualWidth * sx, fh = Frost.ActualHeight * sy;
-            return px >= tl.X && px <= tl.X + fw && py >= tl.Y && py <= tl.Y + fh;
+            return (tl.X, tl.Y, tl.X + Frost.ActualWidth * sx, tl.Y + Frost.ActualHeight * sy);
         }
-        catch { return false; }
+        catch { return null; }
+    }
+
+    /// <summary>Moves <paramref name="item"/> to the 3x3 slot under the cursor on the current page,
+    /// persisting the new order.</summary>
+    private void ReorderTo(ShortcutItem item, int px, int py)
+    {
+        int from = _folder.Items.IndexOf(item);
+        if (from < 0) return;
+        int to = Math.Clamp(_pageIndex * FolderModel.PageSize + SlotFromCursor(px, py),
+            0, _folder.Items.Count - 1);
+        if (to == from) return;
+        _store.Move(_folder, from, to);
+        _store.RegenerateAndPublish(_folder);
+    }
+
+    /// <summary>Which 0..8 grid cell a screen point falls in (clamped to the 3x3).</summary>
+    private int SlotFromCursor(int px, int py)
+    {
+        try
+        {
+            var tl = ItemsGrid.PointToScreen(new Point(0, 0));
+            var src = PresentationSource.FromVisual(this);
+            double sx = src?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+            double sy = src?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
+            double cw = Math.Max(1, ItemsGrid.ActualWidth * sx / 3);
+            double ch = Math.Max(1, ItemsGrid.ActualHeight * sy / 3);
+            int col = (int)Math.Clamp(Math.Floor((px - tl.X) / cw), 0, 2);
+            int row = (int)Math.Clamp(Math.Floor((py - tl.Y) / ch), 0, 2);
+            return row * 3 + col;
+        }
+        catch { return 0; }
     }
 
     /// <summary>Creates the floating icon-with-minus-badge that follows the cursor during a drag-out.</summary>
