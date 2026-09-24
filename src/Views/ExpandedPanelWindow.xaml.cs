@@ -930,18 +930,25 @@ public partial class ExpandedPanelWindow : Window
                 return _folder.Items.OrderByDescending(TargetModified);
             case FolderSort.ModifiedOldest:
                 return _folder.Items.OrderBy(TargetModified);
+            case FolderSort.CreatedNewest:
+                return _folder.Items.OrderByDescending(TargetCreated);
+            case FolderSort.CreatedOldest:
+                return _folder.Items.OrderBy(TargetCreated);
             default:
                 return _folder.Items;   // Custom = the order they were added
         }
     }
 
-    private static DateTime TargetModified(ShortcutItem item)
+    private static DateTime TargetModified(ShortcutItem item) => TargetTime(item, created: false);
+    private static DateTime TargetCreated(ShortcutItem item) => TargetTime(item, created: true);
+
+    private static DateTime TargetTime(ShortcutItem item, bool created)
     {
         try
         {
             var t = ShellLink.ResolveTarget(item.LnkPath);
             if (!string.IsNullOrEmpty(t) && System.IO.File.Exists(t))
-                return System.IO.File.GetLastWriteTimeUtc(t);
+                return created ? System.IO.File.GetCreationTimeUtc(t) : System.IO.File.GetLastWriteTimeUtc(t);
         }
         catch { }
         return DateTime.MinValue;

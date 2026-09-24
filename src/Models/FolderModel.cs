@@ -21,6 +21,9 @@ public enum FolderSort
     /// <summary>By the target file's last-modified time, newest first.</summary>
     ModifiedNewest,
     ModifiedOldest,
+    /// <summary>By the target file's creation time (≈ when it was added to its folder), newest first.</summary>
+    CreatedNewest,
+    CreatedOldest,
 }
 
 /// <summary>One shortcut inside a folder. The .lnk is the source of truth.</summary>

@@ -735,8 +735,10 @@ public partial class ManagerWindow : Window
     // ---- Sort dropdown (custom, themed) ----
 
     private static readonly string[] SortLabels =
-        { "As I added them", "Name (A→Z)", "Name (Z→A)", "Date modified (newest)", "Date modified (oldest)" };
-    private readonly Border[] _sortRows = new Border[5];
+        { "As I added them", "Name (A→Z)", "Name (Z→A)",
+          "Date modified (newest)", "Date modified (oldest)",
+          "Date added (newest)", "Date added (oldest)" };
+    private readonly Border[] _sortRows = new Border[SortLabels.Length];
 
     private void BuildSortOptions()
     {
@@ -781,7 +783,7 @@ public partial class ManagerWindow : Window
     private void SelectSort(int idx)
     {
         if (_current == null) return;
-        _current.Sort = (FolderSort)Math.Clamp(idx, 0, 4);
+        _current.Sort = (FolderSort)Math.Clamp(idx, 0, SortLabels.Length - 1);
         _store.SaveSettings(_current);   // persisted to settings.txt -> survives reopen/reboot
         UpdateSortSelection();
     }
@@ -789,7 +791,7 @@ public partial class ManagerWindow : Window
     private void UpdateSortSelection()
     {
         int sel = (int)(_current?.Sort ?? FolderSort.Custom);
-        SortButtonText.Text = SortLabels[Math.Clamp(sel, 0, 4)];
+        SortButtonText.Text = SortLabels[Math.Clamp(sel, 0, SortLabels.Length - 1)];
         for (int i = 0; i < _sortRows.Length; i++)
             if (_sortRows[i] != null)
                 _sortRows[i].Background = i == sel ? (Brush)Resources["Sel"] : Brushes.Transparent;
