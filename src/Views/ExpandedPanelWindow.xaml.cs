@@ -979,8 +979,8 @@ public partial class ExpandedPanelWindow : Window
     {
         var image = new System.Windows.Controls.Image
         {
-            Width = 28,
-            Height = 28,
+            Width = 20,
+            Height = 20,
             Source = IconForItem(item, stripArrow: true),
             Stretch = Stretch.Uniform,
             SnapsToDevicePixels = true,
@@ -991,10 +991,10 @@ public partial class ExpandedPanelWindow : Window
         var label = new TextBlock
         {
             Text = item.DisplayName,
-            FontSize = 13.5,
+            FontSize = 12.5,
             Foreground = _panelFg,   // dark on frost / themed on plain
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(12, 0, 0, 0),
+            Margin = new Thickness(9, 0, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
             // No hover tooltip on file rows (user preference).
         };

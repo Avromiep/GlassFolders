@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.48";
+    public const string AppVersion = "0.3.49";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -289,9 +289,9 @@ public partial class App : Application
             // Dummy .rdp files so the list looks like the real RDP use case.
             var rdpDir = Path.Combine(tempRoot, "rdp");
             Directory.CreateDirectory(rdpDir);
-            foreach (var n in new[] { "ACME-DC01", "ACME-SQL", "ContosoTerminal", "Finance-App-Server",
-                                      "Warehouse-PC-2", "Reception Front Desk", "Backup Server (nightly)" })
+            for (int i = 1; i <= 24; i++)
             {
+                var n = $"RDP-Server-{i:00}";
                 var p = Path.Combine(rdpDir, n + ".rdp");
                 File.WriteAllText(p, "full address:s:" + n);
                 store.AddShortcut(folder, p);
