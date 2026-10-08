@@ -11,10 +11,20 @@
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AssemblyName>GlassFolders</AssemblyName>
     <RootNamespace>GlassFolders</RootNamespace>
-    <Version>0.3.51</Version>
+    <Version>0.3.52</Version>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <!-- WPF drives DPI via the app manifest; silence WinForms' DPI-config warning. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+
+  <!-- Single-file publish MUST bundle the native WPF/host libraries into the exe. The installer
+       ships only GlassFolders.exe, so if these native dlls (wpfgfx_cor3, PresentationNative_cor3,
+       D3DCompiler_47_cor3, PenImc_cor3, vcruntime140_cor3) are left loose next to the exe instead
+       of self-extracted, WPF throws DllNotFoundException at startup and the app won't launch.
+       Baking these in means a bare `dotnet publish ... -p:PublishSingleFile=true` is always safe. -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
   <!-- GFOpen is a separate tiny launcher project living under src\GFOpen; keep its sources (and
