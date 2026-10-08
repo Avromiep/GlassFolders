@@ -184,7 +184,18 @@
 
         <!-- App tiles sit on frosted glass; dark text, no white halo (the halo made labels fuzzy) -->
         <DataTemplate x:Key="GridTile">
+            <!-- The tile being dragged hides (its floating ghost is the stand-in) so its slot reads
+                 as an empty gap and the other tiles reflow around it. -->
             <StackPanel Width="106">
+                <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Dragging}" Value="True">
+                                <Setter Property="Opacity" Value="0"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </StackPanel.Style>
                 <Image Source="{Binding Icon}" Width="52" Height="52" HorizontalAlignment="Center"/>
                 <TextBlock Text="{Binding Name}" Foreground="#15181D" FontSize="12"
                            TextAlignment="Center" TextWrapping="Wrap" MaxHeight="30"
@@ -455,7 +466,7 @@
                                              PreviewMouseLeftButtonDown="AppList_PreviewMouseLeftButtonDown"
                                              PreviewMouseMove="AppList_PreviewMouseMove"
                                              PreviewMouseRightButtonDown="AppList_PreviewMouseRightButtonDown"
-                                             Drop="AppList_Drop" AllowDrop="True"
+                                             Drop="AppList_Drop" DragOver="AppList_DragOver" AllowDrop="True"
                                              KeyDown="AppList_KeyDown"
                                              MouseDoubleClick="AppList_MouseDoubleClick">
                                         <ListBox.ContextMenu>

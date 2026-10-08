@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.56";
+    public const string AppVersion = "0.3.57";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -253,6 +253,18 @@ public partial class App : Application
                 // manager auto-selects the first folder ("RenNew"); point it at the tabbed one.
                 var savedUi = mgr.TestEditFirstFolderTabName("TabTest", "Servers");
                 sb.AppendLine($"[issue3-ui] typed=Servers saved={savedUi} pass={savedUi == "Servers"}");
+
+                // Drag-reorder (insert-and-shift): a 5-app grid folder, drag app 0 -> slot 2.
+                var g = store.CreateFolder("ReorderTest");
+                foreach (var n in new[] { "notepad", "write", "mspaint", "calc", "charmap" })
+                {
+                    var p = System.IO.Path.Combine(Environment.SystemDirectory, n + ".exe");
+                    if (File.Exists(p)) store.AddShortcut(g, p);
+                }
+                var before = string.Join(",", g.Items.Select(i => i.DisplayName));
+                var after = mgr.TestReorder("ReorderTest", 0, 2);
+                sb.AppendLine($"[reorder] before={before}");
+                sb.AppendLine($"[reorder] after0->2={after}");
                 mgr.Close();
 
                 try { Directory.Delete(tempRoot, true); } catch { }

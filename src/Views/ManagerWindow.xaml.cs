@@ -26,6 +26,7 @@ public partial class ManagerWindow : Window
     private List<AppVM> _appVMs = new();
     private Point _dragStart;
     private AppVM? _dragItem;
+    private Window? _dragGhost;             // floating real-icon that follows the cursor while reordering
     private int _appPage;
     private bool _frostCaught;
     private double _frostEscape;
@@ -478,9 +479,133 @@ public partial class ManagerWindow : Window
         if (Math.Abs(p.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
             Math.Abs(p.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
 
-        DragDrop.DoDragDrop(AppList, "reorder", DragDropEffects.Move);
+        // Lift the real icon onto the cursor and show its slot as a gap; the other tiles reflow around
+        // it live as it moves (iOS/Android style), instead of just a dotted rectangle.
+        var dragged = _dragItem;
+        dragged.Dragging = true;
+        ShowDragGhost(dragged);
+        AppList.GiveFeedback += Drag_GiveFeedback;
+        AppList.QueryContinueDrag += Drag_QueryContinueDrag;
+        try { DragDrop.DoDragDrop(AppList, "reorder", DragDropEffects.Move); } catch { }
+        AppList.GiveFeedback -= Drag_GiveFeedback;
+        AppList.QueryContinueDrag -= Drag_QueryContinueDrag;
+        CloseDragGhost();
         StopPageDragTimer();
+        dragged.Dragging = false;
         _dragItem = null;
+    }
+
+    /// <summary>Test hook: reproduce a drag-reorder of app <paramref name="from"/> onto slot
+    /// <paramref name="to"/> (the live-reflow move + the drop commit) and return the resulting saved
+    /// order, to prove insert-and-shift semantics and persistence.</summary>
+    internal string TestReorder(string folderName, int from, int to)
+    {
+        ReloadFolders(folderName);
+        if (_current == null || from < 0 || from >= _appVMs.Count || to < 0 || to >= _appVMs.Count)
+            return "bad-index";
+        _dragItem = _appVMs[from];
+        var v = _appVMs[from]; _appVMs.RemoveAt(from); _appVMs.Insert(to, v); ApplyAppView();  // reflow
+        var mlist = ManagerList;                                                                 // commit
+        var ordered = _appVMs.Select(x => x.Item).ToList();
+        mlist.Items.Clear();
+        foreach (var it in ordered) mlist.Items.Add(it);
+        _store.SaveOrder(mlist);
+        _dragItem = null;
+        var reloaded = new FolderStore(_store.RootPath).FindByName(folderName);
+        return string.Join(",", (reloaded?.Items ?? new()).Select(i => i.DisplayName));
+    }
+
+    // Hide the OS drag cursor — the floating icon is the pointer now.
+    private void Drag_GiveFeedback(object sender, GiveFeedbackEventArgs e)
+    {
+        e.UseDefaultCursors = false;
+        Mouse.SetCursor(Cursors.None);
+        e.Handled = true;
+    }
+
+    private void Drag_QueryContinueDrag(object sender, QueryContinueDragEventArgs e)
+    {
+        if (_dragGhost != null && NativeMethods.GetCursorPos(out var c)) MoveDragGhost(c.x, c.y);
+    }
+
+    private void ShowDragGhost(AppVM vm)
+    {
+        try
+        {
+            var icon = new Image
+            {
+                Source = vm.Icon,
+                Width = 52, Height = 52,
+                Stretch = Stretch.Uniform,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                { Color = Colors.Black, BlurRadius = 11, ShadowDepth = 2, Opacity = 0.35 },
+            };
+            _dragGhost = new Window
+            {
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = Brushes.Transparent,
+                ShowInTaskbar = false,
+                ShowActivated = false,
+                Topmost = true,
+                ResizeMode = ResizeMode.NoResize,
+                IsHitTestVisible = false,
+                SizeToContent = SizeToContent.Manual,
+                Width = 60, Height = 60,
+                Content = new Grid { Children = { icon } },
+            };
+            _dragGhost.Show();
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(_dragGhost).Handle;
+            int ex = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
+            NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE,
+                ex | NativeMethods.WS_EX_TRANSPARENT | NativeMethods.WS_EX_NOACTIVATE | NativeMethods.WS_EX_TOOLWINDOW);
+            if (NativeMethods.GetCursorPos(out var c)) MoveDragGhost(c.x, c.y);
+        }
+        catch { _dragGhost = null; }
+    }
+
+    private void MoveDragGhost(int cursorX, int cursorY)
+    {
+        if (_dragGhost == null) return;
+        try
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(_dragGhost).Handle;
+            var src = PresentationSource.FromVisual(_dragGhost);
+            double scale = src?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+            int pxW = (int)Math.Round(_dragGhost.Width * scale), pxH = (int)Math.Round(_dragGhost.Height * scale);
+            NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOPMOST,
+                cursorX - pxW / 2, cursorY - pxH / 2, 0, 0,
+                NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
+        }
+        catch { }
+    }
+
+    private void CloseDragGhost()
+    {
+        if (_dragGhost == null) return;
+        try { _dragGhost.Close(); } catch { }
+        _dragGhost = null;
+    }
+
+    /// <summary>Live reflow: while dragging over the grid, slide the dragged tile to the slot under
+    /// the cursor so the others shift to open a gap (insert-and-shift, not swap). The order is
+    /// applied to the view (_appVMs) now and committed to disk on drop.</summary>
+    private void AppList_DragOver(object sender, DragEventArgs e)
+    {
+        if (_dragItem == null) { e.Handled = true; return; }
+        var target = (e.OriginalSource as DependencyObject).FindDataContext<AppVM>();
+        if (target == null || ReferenceEquals(target, _dragItem)) { e.Effects = DragDropEffects.Move; e.Handled = true; return; }
+
+        int from = _appVMs.IndexOf(_dragItem);
+        int to = _appVMs.IndexOf(target);
+        if (from >= 0 && to >= 0 && from != to)
+        {
+            _appVMs.RemoveAt(from);
+            _appVMs.Insert(to, _dragItem);
+            ApplyAppView();   // re-render; the dragged VM keeps Dragging=true so its slot stays a gap
+        }
+        e.Effects = DragDropEffects.Move;
+        e.Handled = true;
     }
 
     // ---- Drag a tile onto a page arrow to move it to another page ----
@@ -523,14 +648,16 @@ public partial class ManagerWindow : Window
     {
         StopPageDragTimer();
         if (_current == null || _dragItem == null) return;
-        var target = (e.OriginalSource as DependencyObject).FindDataContext<AppVM>();
 
+        // The live reflow already put _appVMs in the final order; write that order to the model and
+        // persist it. (Reorder is disabled while searching, so _appVMs is the full, unfiltered list.)
         var mlist = ManagerList;
-        int from = mlist.Items.IndexOf(_dragItem.Item);
-        int to = target != null ? mlist.Items.IndexOf(target.Item) : mlist.Items.Count - 1;
-        if (from >= 0 && to >= 0 && from != to)
+        var ordered = _appVMs.Select(v => v.Item).ToList();
+        if (ordered.Count == mlist.Items.Count)
         {
-            _store.Move(mlist, from, to);
+            mlist.Items.Clear();
+            foreach (var it in ordered) mlist.Items.Add(it);
+            _store.SaveOrder(mlist);
             _store.RegenerateAndPublish(_current);   // order changes the first page/icon
             RefreshApps();
             RefreshFolderMiniIcon();
@@ -1123,12 +1250,21 @@ public sealed class FolderVM : System.ComponentModel.INotifyPropertyChanged
 }
 
 /// <summary>App tile / row.</summary>
-public sealed class AppVM
+public sealed class AppVM : System.ComponentModel.INotifyPropertyChanged
 {
     public ShortcutItem Item { get; }
     public string Name => Item.DisplayName;
     public ImageSource? Icon { get; }
     public AppVM(ShortcutItem item, ImageSource? icon) { Item = item; Icon = icon; }
+
+    // True while this tile is the one being dragged — the template hides it so its slot is a gap.
+    private bool _dragging;
+    public bool Dragging
+    {
+        get => _dragging;
+        set { if (_dragging != value) { _dragging = value; PropertyChanged?.Invoke(this, new(nameof(Dragging))); } }
+    }
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 }
 
 internal static class VisualTreeExtensions

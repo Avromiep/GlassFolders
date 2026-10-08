@@ -363,6 +363,7 @@ public partial class ExpandedPanelWindow : Window
     private Button? _dragOutButton;
     private Point _dragOutStart;
     private bool _dragOutActive;
+    private ShortcutItem? _reflowItem;      // the tile being dragged: shown as a gap, others reflow around it
     // Cross-page drag: poll timer follows the cursor and flips pages when held at a side edge.
     private System.Windows.Threading.DispatcherTimer? _dragPoll;
     private int _edgeDir, _edgeSinceMs, _lastFlipMs;
@@ -391,8 +392,11 @@ public partial class ExpandedPanelWindow : Window
         bool priorSuppress = SuppressAutoClose;
         SuppressAutoClose = true;
 
-        // Lift the icon onto the cursor (its slot shows empty via a full re-render below when needed).
+        // Lift the icon onto the cursor; its own slot now shows as an empty gap and the other tiles
+        // reflow around it live as the cursor moves (iOS/Android style).
+        _reflowItem = item;
         ShowGhost(item);
+        RenderContent();   // show the lifted tile's slot as a gap right away
         ItemsGrid.GiveFeedback += Drag_GiveFeedback;
         ItemsGrid.QueryContinueDrag += Drag_QueryContinueDrag;
 
@@ -425,11 +429,15 @@ public partial class ExpandedPanelWindow : Window
             }
             else
             {
-                ReorderTo(item, c.x, c.y);
+                // The live reflow already moved the item into place in _folder.Items as the cursor
+                // moved; just persist that final order (no second Move needed).
+                _store.SaveOrder(_folder);
+                _store.RegenerateAndPublish(_folder);
             }
         }
         catch { }
 
+        _reflowItem = null;
         RenderContent();   // rebuild a clean grid (restores the lifted tile / reflects the new order)
 
         SuppressAutoClose = priorSuppress;
@@ -463,6 +471,21 @@ public partial class ExpandedPanelWindow : Window
         var r = FrostRectPx();
         if (r is not { } rect) return;
         bool verticalOut = c.y < rect.T || c.y > rect.B;
+
+        // Live reflow: while the cursor is inside the panel, slide the dragged item to the slot under
+        // the cursor so the other tiles shift to open a gap there (insert-and-shift, not swap).
+        if (_reflowItem != null && !verticalOut)
+        {
+            int ci = _folder.Items.IndexOf(_reflowItem);
+            int hi = Math.Clamp(_pageIndex * FolderModel.PageSize + SlotFromCursor(c.x, c.y),
+                                0, _folder.Items.Count - 1);
+            if (ci >= 0 && hi != ci)
+            {
+                _folder.Items.RemoveAt(ci);
+                _folder.Items.Insert(hi, _reflowItem);
+                RenderPage();
+            }
+        }
         const double edge = 60; // device-px band near each side that triggers a page flip
         int dir = 0;
         if (!verticalOut)
@@ -1252,6 +1275,9 @@ public partial class ExpandedPanelWindow : Window
         remove.Click += (_, _) => RemoveItem(item);
         btn.ContextMenu = new ContextMenu();
         btn.ContextMenu.Items.Add(remove);
+
+        // The tile being dragged shows as an empty gap (the floating ghost is its stand-in).
+        if (_reflowItem != null && ReferenceEquals(item, _reflowItem)) btn.Opacity = 0;
 
         return btn;
     }
