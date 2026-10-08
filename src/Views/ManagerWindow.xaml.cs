@@ -661,6 +661,7 @@ public partial class ManagerWindow : Window
             TabsCheck.IsChecked = _current.Tabbed;
             _managerTab = 0;
             BuildTabManager();
+            UpdateTabSectionVisibility();   // "Use tabs" shows only for list folders
             UpdateSortSelection();
 
             UpdateGlass(_current.Frostiness);
@@ -752,8 +753,32 @@ public partial class ManagerWindow : Window
     private void FileList_Click(object sender, RoutedEventArgs e)
     {
         if (_loadingSettings || _current == null) return;
-        _current.View = FileListCheck.IsChecked == true ? FolderView.List : FolderView.Grid;
+        bool list = FileListCheck.IsChecked == true;
+        _current.View = list ? FolderView.List : FolderView.Grid;
         _store.SaveSettings(_current);
+
+        // Tabs only make sense in a list folder. Leaving list view collapses any tabs back into the
+        // single folder, so the grid shows the items (they live in tab subfolders while tabbed).
+        if (!list && _current.Tabbed)
+        {
+            _store.DisableTabs(_current);
+            _current = _store.FindByName(_current.Name) ?? _current;
+            TabsCheck.IsChecked = false;
+            _managerTab = 0;
+            BuildTabManager();
+            RefreshApps();
+            RefreshFolderMiniIcon();
+        }
+        UpdateTabSectionVisibility();
+    }
+
+    /// <summary>The "Use tabs" checkbox (and its tab-manager row) belong to list folders only — hide
+    /// them entirely for grid folders rather than just disabling them.</summary>
+    private void UpdateTabSectionVisibility()
+    {
+        bool isList = FileListCheck.IsChecked == true;
+        TabsCheck.Visibility = isList ? Visibility.Visible : Visibility.Collapsed;
+        if (!isList) TabManageRow.Visibility = Visibility.Collapsed;
     }
 
     private void Tabs_Click(object sender, RoutedEventArgs e)
