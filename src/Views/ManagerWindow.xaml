@@ -342,6 +342,12 @@
                                           Margin="24,8,0,0" VerticalAlignment="Center"
                                           IsEnabled="{Binding IsChecked, ElementName=FileListCheck}"
                                           Foreground="{DynamicResource Fg}" Click="Tabs_Click"/>
+                                <!-- Tab manager: name / add / delete tabs. Built in code; shown only when tabbed. -->
+                                <StackPanel x:Name="TabManageRow" Margin="24,8,0,0" Visibility="Collapsed">
+                                    <TextBlock Text="Tabs — click a tab to edit it, type to rename"
+                                               FontSize="11.5" Foreground="{DynamicResource FgDim}" Margin="0,0,0,6"/>
+                                    <WrapPanel x:Name="TabChipsHost" Orientation="Horizontal"/>
+                                </StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="24,8,0,0"
                                             IsEnabled="{Binding IsChecked, ElementName=FileListCheck}">
                                     <TextBlock Text="Sort" VerticalAlignment="Center" FontSize="12.5"

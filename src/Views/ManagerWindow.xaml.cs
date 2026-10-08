@@ -18,6 +18,7 @@ public partial class ManagerWindow : Window
     private FolderModel? _current;
     private bool _loadingSettings;
     private bool _dark;
+    private int _managerTab;   // which tab the preview shows/edits (when the folder is tabbed)
     private bool _gridView = true;
 
     private List<AppVM> _appVMs = new();
@@ -137,10 +138,24 @@ public partial class ManagerWindow : Window
         double scale = Math.Min(cw / vw, ch / vh);
         double ox = pad + (cw - vw * scale) / 2, oy = pad + (ch - vh * scale) / 2;
 
+        // Windows' GDI device index (\\.\DISPLAYn) climbs over time as displays are docked/undocked
+        // or drivers change — it can reach e.g. 241/242/243 and no longer matches the 1..N numbers
+        // Settings/Identify shows. Re-number the screens 1..N by that index's order so the map reads
+        // 1,2,3 like Windows does (relative order preserved).
+        static int DeviceIndex(string name)
+        {
+            var d = new string(name.Where(char.IsDigit).ToArray());
+            return int.TryParse(d, out var v) ? v : int.MaxValue;
+        }
+        var label = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        int rank = 1;
+        foreach (var s in screens.OrderBy(s => DeviceIndex(s.DeviceName)))
+            label[s.DeviceName] = rank++;
+
         foreach (var s in screens)
         {
             var b = s.Bounds;
-            string num = new string(s.DeviceName.Where(char.IsDigit).ToArray());
+            string num = (label.TryGetValue(s.DeviceName, out var n) ? n : 0).ToString();
             var cell = new Border
             {
                 Width = Math.Max(12, b.Width * scale - gap),
@@ -642,6 +657,8 @@ public partial class ManagerWindow : Window
             OnDesktopCheck.IsChecked = _current.OnDesktop;
             FileListCheck.IsChecked = _current.View == FolderView.List;
             TabsCheck.IsChecked = _current.Tabbed;
+            _managerTab = 0;
+            BuildTabManager();
             UpdateSortSelection();
 
             UpdateGlass(_current.Frostiness);
@@ -743,14 +760,181 @@ public partial class ManagerWindow : Window
         if (TabsCheck.IsChecked == true) _store.EnableTabs(_current);
         else _store.DisableTabs(_current);
         _current = _store.FindByName(_current.Name) ?? _current;   // reload so Tabs populate
+        _managerTab = 0;
+        BuildTabManager();
         RefreshApps();
         RefreshFolderMiniIcon();
     }
 
-    /// <summary>The list the manager's preview edits — the first tab when the folder is tabbed,
-    /// otherwise the folder itself. (Full tab switching lives in the opened folder panel.)</summary>
+    /// <summary>The list the manager's preview edits — the selected tab when the folder is tabbed,
+    /// otherwise the folder itself.</summary>
     private FolderModel ManagerList =>
-        _current != null && _current.Tabbed && _current.Tabs.Count > 0 ? _current.Tabs[0].Folder : _current!;
+        _current != null && _current.Tabbed && _current.Tabs.Count > 0
+            ? _current.Tabs[Math.Clamp(_managerTab, 0, _current.Tabs.Count - 1)].Folder
+            : _current!;
+
+    // ---- Tab manager (name / add / delete tabs) ----
+
+    /// <summary>Rebuilds the tab chips under "Use tabs": each chip is an editable name + a delete
+    /// button, plus an "Add tab" button. Shown only when the folder is tabbed.</summary>
+    private void BuildTabManager()
+    {
+        if (TabManageRow == null || TabChipsHost == null) return;
+
+        if (_current == null || !_current.Tabbed || _current.Tabs.Count == 0)
+        {
+            TabManageRow.Visibility = Visibility.Collapsed;
+            TabChipsHost.Children.Clear();
+            return;
+        }
+
+        TabManageRow.Visibility = Visibility.Visible;
+        _managerTab = Math.Clamp(_managerTab, 0, _current.Tabs.Count - 1);
+        TabChipsHost.Children.Clear();
+
+        for (int i = 0; i < _current.Tabs.Count; i++)
+            TabChipsHost.Children.Add(BuildTabChip(i));
+
+        TabChipsHost.Children.Add(BuildAddTabButton());
+    }
+
+    private UIElement BuildTabChip(int idx)
+    {
+        bool sel = idx == _managerTab;
+        var chip = new Border
+        {
+            CornerRadius = new CornerRadius(8),
+            Margin = new Thickness(0, 0, 8, 8),
+            Padding = new Thickness(9, 4, 6, 4),
+            Background = sel ? (Brush)Resources["Sel"] : (Brush)Resources["CtrlBg"],
+            BorderBrush = sel ? (Brush)Resources["Accent"] : (Brush)Resources["CardBorder"],
+            BorderThickness = new Thickness(sel ? 1.5 : 1),
+            Cursor = Cursors.Hand,
+        };
+
+        // Editable name — type to rename. Commits on Enter or focus loss.
+        var name = new TextBox
+        {
+            Text = _current!.Tabs[idx].Name,
+            MinWidth = 64,
+            MaxWidth = 150,
+            FontSize = 12.5,
+            Foreground = (Brush)Resources["Fg"],
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0),
+            VerticalAlignment = VerticalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            CaretBrush = (Brush)Resources["Fg"],
+        };
+        name.GotKeyboardFocus += (_, _) => { if (idx != _managerTab) SelectManagerTab(idx); };
+        void CommitName()
+        {
+            var t = name.Text.Trim();
+            if (string.IsNullOrEmpty(t)) { name.Text = _current!.Tabs[idx].Name; return; }
+            if (t != _current!.Tabs[idx].Name)
+            {
+                _store.RenameTab(_current, idx, t);
+                _store.RegenerateAndPublish(_current);
+            }
+        }
+        name.KeyDown += (_, e) =>
+        {
+            if (e.Key == System.Windows.Input.Key.Enter) { CommitName(); Keyboard.ClearFocus(); e.Handled = true; }
+            else if (e.Key == System.Windows.Input.Key.Escape) { name.Text = _current!.Tabs[idx].Name; Keyboard.ClearFocus(); e.Handled = true; }
+        };
+        name.LostKeyboardFocus += (_, _) => CommitName();
+
+        // Delete button (×)
+        var del = new TextBlock
+        {
+            Text = "✕",
+            FontSize = 11,
+            Margin = new Thickness(6, 0, 2, 0),
+            Foreground = (Brush)Resources["FgDim"],
+            VerticalAlignment = VerticalAlignment.Center,
+            Cursor = Cursors.Hand,
+            ToolTip = "Delete this tab",
+        };
+        del.MouseEnter += (_, _) => del.Foreground = (Brush)Resources["Accent"];
+        del.MouseLeave += (_, _) => del.Foreground = (Brush)Resources["FgDim"];
+        del.MouseLeftButtonUp += (_, e) => { e.Handled = true; DeleteManagerTab(idx); };
+
+        var inner = new StackPanel { Orientation = Orientation.Horizontal };
+        inner.Children.Add(name);
+        inner.Children.Add(del);
+        chip.Child = inner;
+
+        // Click the chip body (not the delete ✕) selects the tab for the preview.
+        chip.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (idx != _managerTab && !ReferenceEquals(e.OriginalSource, del)) SelectManagerTab(idx);
+        };
+        return chip;
+    }
+
+    private UIElement BuildAddTabButton()
+    {
+        var add = new Border
+        {
+            CornerRadius = new CornerRadius(8),
+            Margin = new Thickness(0, 0, 8, 8),
+            Padding = new Thickness(11, 4, 11, 4),
+            Background = Brushes.Transparent,
+            BorderBrush = (Brush)Resources["CardBorder"],
+            BorderThickness = new Thickness(1),
+            Cursor = Cursors.Hand,
+            Child = new TextBlock
+            {
+                Text = "+ Add tab",
+                FontSize = 12.5,
+                Foreground = (Brush)Resources["FgDim"],
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+            ToolTip = "Add a new tab",
+        };
+        add.MouseEnter += (_, _) => add.Background = (Brush)Resources["Hover"];
+        add.MouseLeave += (_, _) => add.Background = Brushes.Transparent;
+        add.MouseLeftButtonUp += (_, _) =>
+        {
+            if (_current == null) return;
+            _store.AddTab(_current, $"Tab {_current.Tabs.Count + 1}");
+            _store.RegenerateAndPublish(_current);
+            _managerTab = _current.Tabs.Count - 1;   // select the new tab
+            BuildTabManager();
+            RefreshApps();
+        };
+        return add;
+    }
+
+    private void SelectManagerTab(int idx)
+    {
+        if (_current == null) return;
+        _managerTab = Math.Clamp(idx, 0, _current.Tabs.Count - 1);
+        BuildTabManager();
+        RefreshApps();
+    }
+
+    private void DeleteManagerTab(int idx)
+    {
+        if (_current == null || idx < 0 || idx >= _current.Tabs.Count) return;
+        var tab = _current.Tabs[idx];
+        if (tab.Folder.Items.Count > 0 &&
+            !ModernDialogWindow.Confirm(this, "Delete tab",
+                $"Delete the tab “{tab.Name}” and its {tab.Folder.Items.Count} item(s)?",
+                okText: "Delete", danger: true))
+            return;
+
+        _store.RemoveTab(_current, idx);
+        // RemoveTab turns tabs off entirely when the last one goes; reload so our model matches.
+        _current = _store.FindByName(_current.Name) ?? _current;
+        if (!_current.Tabbed) { _managerTab = 0; TabsCheck.IsChecked = false; }
+        else _managerTab = Math.Clamp(_managerTab, 0, _current.Tabs.Count - 1);
+        _store.RegenerateAndPublish(_current);
+        BuildTabManager();
+        RefreshApps();
+        RefreshFolderMiniIcon();
+    }
 
     // ---- Sort dropdown (custom, themed) ----
 

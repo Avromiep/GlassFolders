@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.52";
+    public const string AppVersion = "0.3.53";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -155,6 +155,61 @@ public partial class App : Application
                 timer.Start();
             }
             catch (Exception ex) { LogCrash("shotmgr2", ex); Shutdown(); }
+            return;
+        }
+
+        if (e.Args.Length >= 1 && e.Args[0].Equals("--shotmgrtabs", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var tempRoot = Path.Combine(Path.GetTempPath(), "gf-mgrtabs-" + Guid.NewGuid().ToString("N"));
+                DesktopIntegration.DesktopDirOverride = Path.Combine(tempRoot, "desktop");
+                Directory.CreateDirectory(DesktopIntegration.DesktopDirOverride);
+                var store = new FolderStore(tempRoot);
+                var rdpDir = Path.Combine(tempRoot, "rdp");
+                Directory.CreateDirectory(rdpDir);
+                string Rdp(string n) { var p = Path.Combine(rdpDir, n + ".rdp"); File.WriteAllText(p, "full address:s:" + n); return p; }
+
+                var f = store.CreateFolder("RDP Servers");
+                f.View = FolderView.List; store.SaveSettings(f);
+                store.EnableTabs(f);
+                store.RenameTab(f, 0, "Clients");
+                store.RenameTab(f, 1, "Data Center");
+                store.AddTab(f, "Lab");
+                foreach (var n in new[] { "ACME-Reception", "ACME-Accounting", "Bloom Dental-PC1" })
+                    store.AddShortcut(f.Tabs[0].Folder, Rdp(n));
+                foreach (var n in new[] { "DC01", "SQL-Primary" })
+                    store.AddShortcut(f.Tabs[1].Folder, Rdp(n));
+                store.RegenerateAndPublish(f);
+
+                var win = new ManagerWindow(store)
+                { WindowStartupLocation = WindowStartupLocation.Manual, Left = -32000, Top = 60 };
+                win.Show();
+                var outPng = e.Args.Length >= 2 ? e.Args[1] : "mgrtabs.png";
+                var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+                timer.Tick += (_, _) =>
+                {
+                    timer.Stop();
+                    try
+                    {
+                        var root = (System.Windows.FrameworkElement)win.Content;
+                        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                            (int)root.ActualWidth, (int)root.ActualHeight, 96, 96,
+                            System.Windows.Media.PixelFormats.Pbgra32);
+                        rtb.Render(root);
+                        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+                        using var fs = File.Create(outPng);
+                        enc.Save(fs);
+                    }
+                    catch (Exception ex) { File.WriteAllText(outPng + ".log", ex.ToString()); }
+                    win.Close();
+                    try { Directory.Delete(tempRoot, true); } catch { }
+                    Shutdown();
+                };
+                timer.Start();
+            }
+            catch (Exception ex) { LogCrash("shotmgrtabs", ex); Shutdown(); }
             return;
         }
 
