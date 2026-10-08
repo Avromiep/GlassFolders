@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.53";
+    public const string AppVersion = "0.3.54";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -210,6 +210,61 @@ public partial class App : Application
                 timer.Start();
             }
             catch (Exception ex) { LogCrash("shotmgrtabs", ex); Shutdown(); }
+            return;
+        }
+
+        if (e.Args.Length >= 1 && e.Args[0].Equals("--shotupdate", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var outPng = e.Args.Length >= 2 ? e.Args[1] : "update.png";
+                var win = new Views.UpdateWindow(Services.Theming.IsDark())
+                { WindowStartupLocation = WindowStartupLocation.Manual, Left = -32000, Top = 80 };
+                win.Show();
+                void Cap(string path)
+                {
+                    try
+                    {
+                        var root = (System.Windows.FrameworkElement)win.Content;
+                        root.UpdateLayout();
+                        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                            (int)root.ActualWidth, (int)root.ActualHeight, 96, 96,
+                            System.Windows.Media.PixelFormats.Pbgra32);
+                        rtb.Render(root);
+                        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+                        using var fs = File.Create(path);
+                        enc.Save(fs);
+                    }
+                    catch (Exception ex) { File.WriteAllText(path + ".log", ex.ToString()); }
+                }
+                // Let the real check settle (shows "up to date" on the latest), then simulate the
+                // available + downloading states for the other two frames.
+                var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2600) };
+                t.Tick += (_, _) =>
+                {
+                    t.Stop();
+                    Cap(outPng);                                   // real result (up to date)
+                    win.TestAvailable("0.4.0");
+                    win.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,
+                        () => Cap(outPng + ".available.png"));
+                    var t2 = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+                    t2.Tick += (_, _) =>
+                    {
+                        t2.Stop();
+                        win.TestDownloading(45);
+                        win.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+                        {
+                            Cap(outPng + ".downloading.png");
+                            win.Close();
+                            Shutdown();
+                        });
+                    };
+                    t2.Start();
+                };
+                t.Start();
+            }
+            catch (Exception ex) { LogCrash("shotupdate", ex); Shutdown(); }
             return;
         }
 
@@ -683,7 +738,7 @@ public partial class App : Application
                         try
                         {
                             _tray?.ShowBalloonTip(6000, "Update available",
-                                $"Glass Folders {r.LatestVersion} is ready. Open Glass Folders → Settings to install.",
+                                $"Glass Folders {r.LatestVersion} is ready — click here to install.",
                                 WinForms.ToolTipIcon.Info);
                         }
                         catch { }
@@ -904,6 +959,24 @@ public partial class App : Application
         if (checkForUpdates) _settings.BeginUpdateCheck();
     }
 
+    private Views.UpdateWindow? _updateWindow;
+
+    /// <summary>Opens the dedicated, guided update window (checks on open). Reuses the existing
+    /// one if it's already showing.</summary>
+    private void ShowUpdateWindow()
+    {
+        if (_updateWindow != null)
+        {
+            if (_updateWindow.WindowState == WindowState.Minimized) _updateWindow.WindowState = WindowState.Normal;
+            _updateWindow.Activate();
+            return;
+        }
+        _updateWindow = new Views.UpdateWindow(Services.Theming.IsDark());
+        _updateWindow.Closed += (_, _) => _updateWindow = null;
+        _updateWindow.Show();
+        _updateWindow.Activate();
+    }
+
     private void SetupTray()
     {
         _tray = new WinForms.NotifyIcon
@@ -919,6 +992,8 @@ public partial class App : Application
             if (e.Button == WinForms.MouseButtons.Right) Dispatcher.Invoke(ShowTrayMenu);
         };
         _tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowManager);
+        // Clicking the "Update available" balloon opens the guided update window.
+        _tray.BalloonTipClicked += (_, _) => Dispatcher.Invoke(ShowUpdateWindow);
     }
 
     private System.Windows.Controls.ContextMenu? _trayMenu;
@@ -942,7 +1017,7 @@ public partial class App : Application
             settings.Click += (_, _) => ShowSettings(checkForUpdates: false);
             var update = new System.Windows.Controls.MenuItem
             { Header = "Check for updates", Style = (Style)Resources["TrayMenuItem"] };
-            update.Click += (_, _) => ShowSettings(checkForUpdates: true);
+            update.Click += (_, _) => ShowUpdateWindow();
             var exit = new System.Windows.Controls.MenuItem
             { Header = "Exit", Style = (Style)Resources["TrayMenuItem"] };
             exit.Click += (_, _) => ExitApp();
