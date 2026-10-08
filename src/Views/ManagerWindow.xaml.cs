@@ -338,10 +338,11 @@ public partial class ManagerWindow : Window
     private void RefreshApps()
     {
         if (_current == null) return;
-        _appVMs = _current.Items
+        var list = ManagerList;
+        _appVMs = list.Items
             .Select(i => new AppVM(i, ImageHelper.LoadIcon(i.LnkPath, 64)))
             .ToList();
-        FolderCount.Text = _current.Items.Count == 1 ? "1 app" : $"{_current.Items.Count} apps";
+        FolderCount.Text = list.Items.Count == 1 ? "1 item" : $"{list.Items.Count} items";
         ApplyAppView();
     }
 
@@ -438,7 +439,7 @@ public partial class ManagerWindow : Window
     private void RemoveSelected()
     {
         if (_current == null || AppList.SelectedItem is not AppVM vm) return;
-        _store.RemoveShortcut(_current, vm.Item);
+        _store.RemoveShortcut(ManagerList, vm.Item);
         _store.RegenerateAndPublish(_current);
         RefreshApps();
         RefreshFolderMiniIcon();
@@ -507,11 +508,12 @@ public partial class ManagerWindow : Window
         if (_current == null || _dragItem == null) return;
         var target = (e.OriginalSource as DependencyObject).FindDataContext<AppVM>();
 
-        int from = _current.Items.IndexOf(_dragItem.Item);
-        int to = target != null ? _current.Items.IndexOf(target.Item) : _current.Items.Count - 1;
+        var mlist = ManagerList;
+        int from = mlist.Items.IndexOf(_dragItem.Item);
+        int to = target != null ? mlist.Items.IndexOf(target.Item) : mlist.Items.Count - 1;
         if (from >= 0 && to >= 0 && from != to)
         {
-            _store.Move(_current, from, to);
+            _store.Move(mlist, from, to);
             _store.RegenerateAndPublish(_current);   // order changes the first page/icon
             RefreshApps();
             RefreshFolderMiniIcon();
@@ -599,9 +601,10 @@ public partial class ManagerWindow : Window
         // Multi-file selections arrive in an arbitrary OS order; add them in the folder's chosen
         // sort order (name / date added / date modified).
         var ordered = FileSort.OrderPaths(files);
+        var target = ManagerList;
         var failed = new List<string>();
         foreach (var f in ordered)
-            try { _store.AddShortcut(_current, f); }
+            try { _store.AddShortcut(target, f); }
             catch { failed.Add(System.IO.Path.GetFileName(f)); }
         _store.RegenerateAndPublish(_current);
         RefreshApps();
@@ -638,6 +641,7 @@ public partial class ManagerWindow : Window
             UpdateFrostLabel(_current.Frostiness);
             OnDesktopCheck.IsChecked = _current.OnDesktop;
             FileListCheck.IsChecked = _current.View == FolderView.List;
+            TabsCheck.IsChecked = _current.Tabbed;
             UpdateSortSelection();
 
             UpdateGlass(_current.Frostiness);
@@ -732,6 +736,21 @@ public partial class ManagerWindow : Window
         _current.View = FileListCheck.IsChecked == true ? FolderView.List : FolderView.Grid;
         _store.SaveSettings(_current);
     }
+
+    private void Tabs_Click(object sender, RoutedEventArgs e)
+    {
+        if (_loadingSettings || _current == null) return;
+        if (TabsCheck.IsChecked == true) _store.EnableTabs(_current);
+        else _store.DisableTabs(_current);
+        _current = _store.FindByName(_current.Name) ?? _current;   // reload so Tabs populate
+        RefreshApps();
+        RefreshFolderMiniIcon();
+    }
+
+    /// <summary>The list the manager's preview edits — the first tab when the folder is tabbed,
+    /// otherwise the folder itself. (Full tab switching lives in the opened folder panel.)</summary>
+    private FolderModel ManagerList =>
+        _current != null && _current.Tabbed && _current.Tabs.Count > 0 ? _current.Tabs[0].Folder : _current!;
 
     // ---- Sort dropdown (custom, themed) ----
 

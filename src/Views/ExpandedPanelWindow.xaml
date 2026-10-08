@@ -264,17 +264,22 @@
                         </Button>
                     </Grid>
 
-                    <!-- File list: a vertical list that grows in height (MaxHeight set in code to the
-                         monitor's working height) and then scrolls. Shown only in List view. -->
-                    <ScrollViewer x:Name="ListContent" Visibility="Collapsed" Focusable="False"
-                                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <ItemsControl x:Name="ItemsList" Focusable="False" FocusVisualStyle="{x:Null}"
-                                      KeyboardNavigation.IsTabStop="False">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate><StackPanel/></ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                        </ItemsControl>
-                    </ScrollViewer>
+                    <!-- File list, optionally with a tab strip on top (named sub-lists). The list
+                         grows in height (MaxHeight set in code) then scrolls. Shown only in List view. -->
+                    <DockPanel x:Name="ListRoot" Visibility="Collapsed">
+                        <StackPanel x:Name="TabStrip" DockPanel.Dock="Top" Orientation="Horizontal"
+                                    HorizontalAlignment="Left" Margin="0,0,0,8"
+                                    VerticalAlignment="Bottom" Visibility="Collapsed"/>
+                        <ScrollViewer x:Name="ListContent" Focusable="False"
+                                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl x:Name="ItemsList" Focusable="False" FocusVisualStyle="{x:Null}"
+                                          KeyboardNavigation.IsTabStop="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><StackPanel/></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </DockPanel>
                 </Grid>
                 </DockPanel>
             </Grid>

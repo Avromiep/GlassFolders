@@ -74,6 +74,13 @@ public sealed class FolderModel
     /// <summary>Sort order for the file list. Default = Custom (the order items were added).</summary>
     public FolderSort Sort { get; set; } = FolderSort.Custom;
 
+    /// <summary>List folders only: split the folder into named tabs, each its own list (instead of
+    /// nesting). When true, <see cref="Tabs"/> holds them and <see cref="Items"/> is unused.</summary>
+    public bool Tabbed { get; set; }
+
+    /// <summary>The tabs (each a sub-list) when <see cref="Tabbed"/> is true.</summary>
+    public List<FolderTab> Tabs { get; } = new();
+
     /// <summary>Which monitor the panel opens on. Null/empty = "same monitor as the folder icon"
     /// (the default). Otherwise the chosen monitor's device name (e.g. \\.\DISPLAY3).</summary>
     public string? PanelMonitor { get; set; }
@@ -89,5 +96,13 @@ public sealed class FolderModel
         Items.Skip(index * PageSize).Take(PageSize);
 
     public IReadOnlyList<string> FirstPagePaths() =>
-        Items.Take(PageSize).Select(i => i.LnkPath).ToList();
+        (Tabbed && Tabs.Count > 0 ? Tabs[0].Folder.Items : Items)
+            .Take(PageSize).Select(i => i.LnkPath).ToList();
+}
+
+/// <summary>One named tab inside a tabbed list folder — its own sub-list (backed by a subdirectory).</summary>
+public sealed class FolderTab
+{
+    public required string Name { get; set; }
+    public required FolderModel Folder { get; init; }
 }

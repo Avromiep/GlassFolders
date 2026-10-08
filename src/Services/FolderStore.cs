@@ -62,7 +62,30 @@ public sealed class FolderStore
             model.Items.Add(new ShortcutItem { LnkPath = p });
 
         LoadSettings(model);
+        if (model.Tabbed) LoadTabs(model);
         return model;
+    }
+
+    private void LoadTabs(FolderModel container)
+    {
+        container.Tabs.Clear();
+        var tabsFile = Path.Combine(container.DirectoryPath, "tabs.txt");
+        if (!File.Exists(tabsFile)) return;
+        foreach (var line in File.ReadAllLines(tabsFile))
+        {
+            if (line.Length == 0) continue;
+            var parts = line.Split('\t');
+            var subDir = Path.Combine(container.DirectoryPath, parts[0].Trim());
+            if (!Directory.Exists(subDir)) continue;
+            var sub = LoadFolder(subDir);        // a tab subdir has no tabs.txt, so it won't recurse
+            sub.View = container.View;
+            sub.Sort = container.Sort;
+            container.Tabs.Add(new FolderTab
+            {
+                Name = parts.Length > 1 ? parts[1] : Path.GetFileName(subDir),
+                Folder = sub,
+            });
+        }
     }
 
     private static void LoadSettings(FolderModel model)
@@ -90,6 +113,8 @@ public sealed class FolderStore
                     ? FolderView.List : FolderView.Grid;
             else if (key == "sort")
                 model.Sort = Enum.TryParse<FolderSort>(val, ignoreCase: true, out var s) ? s : FolderSort.Custom;
+            else if (key == "tabbed" && bool.TryParse(val, out var tb))
+                model.Tabbed = tb;
         }
     }
 
@@ -105,6 +130,7 @@ public sealed class FolderStore
             $"monitorrect={folder.PanelMonitorRect}",
             $"view={(folder.View == FolderView.List ? "list" : "grid")}",
             $"sort={folder.Sort}",
+            $"tabbed={folder.Tabbed}",
         });
     }
 
@@ -217,6 +243,98 @@ public sealed class FolderStore
     {
         var orderFile = Path.Combine(folder.DirectoryPath, "order.txt");
         File.WriteAllLines(orderFile, folder.Items.Select(i => Path.GetFileName(i.LnkPath)));
+    }
+
+    // ---- Tabs (named sub-lists inside one list folder) ----
+
+    private static string FreshTabDir(FolderModel folder)
+    {
+        int n = 0;
+        string dir;
+        do { dir = Path.Combine(folder.DirectoryPath, "t" + n); n++; } while (Directory.Exists(dir));
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    public void SaveTabs(FolderModel folder)
+    {
+        File.WriteAllLines(Path.Combine(folder.DirectoryPath, "tabs.txt"),
+            folder.Tabs.Select(t => Path.GetFileName(t.Folder.DirectoryPath) + "\t" + t.Name));
+    }
+
+    /// <summary>Turns a plain list folder into a tabbed one: the existing items become "Tab 1",
+    /// plus an empty "Tab 2".</summary>
+    public void EnableTabs(FolderModel folder)
+    {
+        if (folder.Tabbed) return;
+        folder.Tabbed = true;
+
+        var d0 = FreshTabDir(folder);
+        foreach (var it in folder.Items)
+        {
+            try { File.Move(it.LnkPath, Path.Combine(d0, Path.GetFileName(it.LnkPath))); } catch { }
+        }
+        File.WriteAllLines(Path.Combine(d0, "order.txt"), folder.Items.Select(i => Path.GetFileName(i.LnkPath)));
+        try { File.Delete(Path.Combine(folder.DirectoryPath, "order.txt")); } catch { }
+        folder.Items.Clear();
+
+        var sub0 = LoadFolder(d0); sub0.View = folder.View; sub0.Sort = folder.Sort;
+        folder.Tabs.Add(new FolderTab { Name = "Tab 1", Folder = sub0 });
+        var d1 = FreshTabDir(folder);
+        var sub1 = LoadFolder(d1); sub1.View = folder.View; sub1.Sort = folder.Sort;
+        folder.Tabs.Add(new FolderTab { Name = "Tab 2", Folder = sub1 });
+
+        SaveTabs(folder);
+        SaveSettings(folder);
+    }
+
+    /// <summary>Collapses a tabbed folder back to a single list (all tabs' items merged).</summary>
+    public void DisableTabs(FolderModel folder)
+    {
+        if (!folder.Tabbed) return;
+        var merged = new List<string>();
+        foreach (var tab in folder.Tabs)
+        {
+            foreach (var it in tab.Folder.Items)
+            {
+                var dest = UniqueLnkPath(folder.DirectoryPath, Path.GetFileNameWithoutExtension(it.LnkPath));
+                try { File.Move(it.LnkPath, dest); merged.Add(dest); } catch { }
+            }
+            try { Directory.Delete(tab.Folder.DirectoryPath, true); } catch { }
+        }
+        try { File.Delete(Path.Combine(folder.DirectoryPath, "tabs.txt")); } catch { }
+        folder.Tabs.Clear();
+        folder.Items.Clear();
+        foreach (var p in merged) folder.Items.Add(new ShortcutItem { LnkPath = p });
+        SaveOrder(folder);
+        folder.Tabbed = false;
+        SaveSettings(folder);
+    }
+
+    public FolderTab AddTab(FolderModel folder, string name)
+    {
+        var dir = FreshTabDir(folder);
+        var sub = LoadFolder(dir); sub.View = folder.View; sub.Sort = folder.Sort;
+        var tab = new FolderTab { Name = string.IsNullOrWhiteSpace(name) ? $"Tab {folder.Tabs.Count + 1}" : name, Folder = sub };
+        folder.Tabs.Add(tab);
+        SaveTabs(folder);
+        return tab;
+    }
+
+    public void RenameTab(FolderModel folder, int index, string name)
+    {
+        if (index < 0 || index >= folder.Tabs.Count || string.IsNullOrWhiteSpace(name)) return;
+        folder.Tabs[index].Name = name.Trim();
+        SaveTabs(folder);
+    }
+
+    public void RemoveTab(FolderModel folder, int index)
+    {
+        if (index < 0 || index >= folder.Tabs.Count) return;
+        try { Directory.Delete(folder.Tabs[index].Folder.DirectoryPath, true); } catch { }
+        folder.Tabs.RemoveAt(index);
+        if (folder.Tabs.Count == 0) { DisableTabs(folder); return; }
+        SaveTabs(folder);
     }
 
     // ---- Icon + desktop publication ----

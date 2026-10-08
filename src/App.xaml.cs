@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.49";
+    public const string AppVersion = "0.3.50";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -286,18 +286,19 @@ public partial class App : Application
         var folder = store.CreateFolder(list ? "RDP Servers" : "Glass Demo");
         if (list)
         {
-            // Dummy .rdp files so the list looks like the real RDP use case.
             var rdpDir = Path.Combine(tempRoot, "rdp");
             Directory.CreateDirectory(rdpDir);
-            for (int i = 1; i <= 24; i++)
-            {
-                var n = $"RDP-Server-{i:00}";
-                var p = Path.Combine(rdpDir, n + ".rdp");
-                File.WriteAllText(p, "full address:s:" + n);
-                store.AddShortcut(folder, p);
-            }
+            string Rdp(string n) { var p = Path.Combine(rdpDir, n + ".rdp"); File.WriteAllText(p, "full address:s:" + n); return p; }
             folder.View = FolderView.List;
             store.SaveSettings(folder);
+            store.EnableTabs(folder);
+            store.RenameTab(folder, 0, "Clients");
+            store.RenameTab(folder, 1, "Data Center");
+            foreach (var n in new[] { "ACME-Reception", "ACME-Accounting", "Bloom Dental-PC1", "Bloom Dental-PC2",
+                                      "Contoso-Front", "Contoso-Back", "Delmar-Kiosk", "Everest-Lobby" })
+                store.AddShortcut(folder.Tabs[0].Folder, Rdp(n));
+            foreach (var n in new[] { "DC01", "DC02", "SQL-Primary", "SQL-Replica", "Hyper-V-Host", "Backup-NAS" })
+                store.AddShortcut(folder.Tabs[1].Folder, Rdp(n));
         }
         else
         {
@@ -319,6 +320,22 @@ public partial class App : Application
             timer.Stop();
             try { CaptureWindow(win, outPng); }
             catch (Exception ex) { File.WriteAllText(outPng + ".log", "capture: " + ex); }
+            if (list && folder.Tabbed)
+            {
+                // Second shot with the other tab active.
+                win.TestSelectTab(1);
+                var t2 = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+                t2.Tick += (_, _) =>
+                {
+                    t2.Stop();
+                    try { CaptureWindow(win, outPng + ".tab2.png"); } catch { }
+                    win.Close();
+                    try { Directory.Delete(tempRoot, true); } catch { }
+                    Shutdown();
+                };
+                t2.Start();
+                return;
+            }
             win.Close();
             try { Directory.Delete(tempRoot, true); } catch { }
             Shutdown();

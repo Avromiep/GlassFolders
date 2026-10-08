@@ -14,6 +14,13 @@ public partial class ExpandedPanelWindow : Window
     private readonly FolderStore _store;
     private FolderModel _folder = null!;   // set per-open in OpenFor (one window is reused)
     private int _pageIndex;
+    private int _activeTab;                 // selected tab in a tabbed list folder
+
+    /// <summary>The list currently shown: the active tab's sub-list when tabbed, else the folder.</summary>
+    private FolderModel CurrentListFolder =>
+        _folder.Tabbed && _folder.Tabs.Count > 0
+            ? _folder.Tabs[Math.Clamp(_activeTab, 0, _folder.Tabs.Count - 1)].Folder
+            : _folder;
     private int _blurFactor = 11;
     private bool _closeArmed;
 
@@ -170,6 +177,7 @@ public partial class ExpandedPanelWindow : Window
         _folder = folder;
         AnchorPoint = anchor;
         _pageIndex = 0;
+        _activeTab = 0;
         TitleText.Text = folder.Name;
         EndEdit();                         // in case a rename box was left open on a prior folder
         ApplyFrostiness(folder.Frostiness);
@@ -896,12 +904,13 @@ public partial class ExpandedPanelWindow : Window
         {
             GridContent.Visibility = Visibility.Collapsed;
             Dots.Visibility = Visibility.Collapsed;
-            ListContent.Visibility = Visibility.Visible;
+            ListRoot.Visibility = Visibility.Visible;
+            BuildTabStrip();
             RenderList();
         }
         else
         {
-            ListContent.Visibility = Visibility.Collapsed;
+            ListRoot.Visibility = Visibility.Collapsed;
             GridContent.Visibility = Visibility.Visible;
             Dots.Visibility = Visibility.Visible;
             RenderPage();
@@ -917,25 +926,165 @@ public partial class ExpandedPanelWindow : Window
         ListContent.MaxHeight = ComputeListMaxHeight();
     }
 
-    /// <summary>The folder's items in the chosen sort order (Custom = as added).</summary>
+    /// <summary>Test/screenshot hook: select a tab and re-render.</summary>
+    public void TestSelectTab(int index) { _activeTab = index; RenderContent(); }
+
+    // ---- Tabs (named sub-lists at the top of a list folder) ----
+
+    /// <summary>Builds the tab strip for a tabbed list folder (frosted pills, the selected one
+    /// bigger), plus a "+" to add a tab. Hidden when the folder isn't tabbed.</summary>
+    private void BuildTabStrip()
+    {
+        TabStrip.Children.Clear();
+        if (!_folder.Tabbed || _folder.Tabs.Count == 0)
+        {
+            TabStrip.Visibility = Visibility.Collapsed;
+            return;
+        }
+        TabStrip.Visibility = Visibility.Visible;
+        _activeTab = Math.Clamp(_activeTab, 0, _folder.Tabs.Count - 1);
+        for (int i = 0; i < _folder.Tabs.Count; i++)
+            TabStrip.Children.Add(BuildTabPill(i));
+        TabStrip.Children.Add(BuildAddTabPill());
+    }
+
+    private UIElement BuildTabPill(int idx)
+    {
+        bool sel = idx == _activeTab;
+        // Tabs are a dark veil over the frost (so they stand out); the selected one is lighter
+        // (reads as merged into the list) and a bit bigger so you can tell which is active.
+        var pill = new Border
+        {
+            CornerRadius = new CornerRadius(9, 9, 0, 0),
+            Margin = new Thickness(0, 0, 5, 0),
+            Padding = sel ? new Thickness(16, 8, 16, 8) : new Thickness(13, 5, 13, 5),
+            Background = new SolidColorBrush(sel
+                ? Color.FromArgb(0x12, 0, 0, 0) : Color.FromArgb(0x2C, 0, 0, 0)),
+            Cursor = Cursors.Hand,
+            VerticalAlignment = VerticalAlignment.Bottom,
+        };
+
+        var name = new TextBlock
+        {
+            Text = _folder.Tabs[idx].Name,
+            Foreground = _panelFg,
+            FontSize = sel ? 14 : 12.5,
+            FontWeight = sel ? FontWeights.SemiBold : FontWeights.Normal,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        System.Windows.Media.TextOptions.SetTextFormattingMode(name, System.Windows.Media.TextFormattingMode.Display);
+
+        var edit = new TextBox
+        {
+            Visibility = Visibility.Collapsed,
+            MinWidth = 60,
+            FontSize = sel ? 14 : 12.5,
+            Background = System.Windows.Media.Brushes.Transparent,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(0),
+        };
+        var grid = new Grid();
+        grid.Children.Add(name);
+        grid.Children.Add(edit);
+        pill.Child = grid;
+
+        pill.MouseLeftButtonUp += (_, e) =>
+        {
+            if (e.ClickCount == 2) { BeginTabRename(name, edit, idx); return; }
+            if (idx != _activeTab) { _activeTab = idx; RenderContent(); }
+        };
+
+        var rename = new MenuItem { Header = "Rename tab" };
+        rename.Click += (_, _) => BeginTabRename(name, edit, idx);
+        var remove = new MenuItem { Header = "Remove tab" };
+        remove.Click += (_, _) => RemoveTab(idx);
+        pill.ContextMenu = new ContextMenu();
+        pill.ContextMenu.Items.Add(rename);
+        pill.ContextMenu.Items.Add(remove);
+        return pill;
+    }
+
+    private UIElement BuildAddTabPill()
+    {
+        var pill = new Border
+        {
+            CornerRadius = new CornerRadius(9, 9, 0, 0),
+            Padding = new Thickness(11, 5, 11, 5),
+            Background = new SolidColorBrush(Color.FromArgb(0x1C, 0, 0, 0)),
+            Cursor = Cursors.Hand,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            ToolTip = "New tab",
+            Child = new TextBlock { Text = "+", FontSize = 15, Foreground = _panelFg, FontWeight = FontWeights.SemiBold },
+        };
+        pill.MouseLeftButtonUp += (_, _) =>
+        {
+            var tab = _store.AddTab(_folder, $"Tab {_folder.Tabs.Count + 1}");
+            _activeTab = _folder.Tabs.Count - 1;
+            RenderContent();
+        };
+        return pill;
+    }
+
+    private void BeginTabRename(TextBlock name, TextBox edit, int idx)
+    {
+        name.Visibility = Visibility.Collapsed;
+        edit.Text = _folder.Tabs[idx].Name;
+        edit.Visibility = Visibility.Visible;
+        edit.Focus();
+        edit.SelectAll();
+        void Commit()
+        {
+            _store.RenameTab(_folder, idx, edit.Text);
+            RenderContent();
+        }
+        edit.KeyDown += (_, e) =>
+        {
+            if (e.Key == System.Windows.Input.Key.Enter) { e.Handled = true; Commit(); }
+            else if (e.Key == System.Windows.Input.Key.Escape) { e.Handled = true; RenderContent(); }
+        };
+        edit.LostKeyboardFocus += (_, _) => { if (edit.Visibility == Visibility.Visible) Commit(); };
+    }
+
+    private void RemoveTab(int idx)
+    {
+        if (idx < 0 || idx >= _folder.Tabs.Count) return;
+        var tab = _folder.Tabs[idx];
+        if (tab.Folder.Items.Count > 0)
+        {
+            SuppressAutoClose = true;
+            var ok = MessageBox.Show(this,
+                $"Remove the tab “{tab.Name}” and its {tab.Folder.Items.Count} item(s)?",
+                "Glass Folders", MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
+            SuppressAutoClose = false;
+            if (!ok) return;
+        }
+        _store.RemoveTab(_folder, idx);
+        if (_activeTab >= _folder.Tabs.Count) _activeTab = Math.Max(0, _folder.Tabs.Count - 1);
+        _store.RegenerateAndPublish(_folder);
+        RenderContent();
+    }
+
+    /// <summary>The current list's items in the chosen sort order (Custom = as added). Uses the
+    /// active tab's items when the folder is tabbed.</summary>
     private IEnumerable<ShortcutItem> SortedItems()
     {
+        var items = CurrentListFolder.Items;
         switch (_folder.Sort)
         {
             case FolderSort.NameAsc:
-                return _folder.Items.OrderBy(i => i.DisplayName, Services.NaturalStringComparer.Instance);
+                return items.OrderBy(i => i.DisplayName, Services.NaturalStringComparer.Instance);
             case FolderSort.NameDesc:
-                return _folder.Items.OrderByDescending(i => i.DisplayName, Services.NaturalStringComparer.Instance);
+                return items.OrderByDescending(i => i.DisplayName, Services.NaturalStringComparer.Instance);
             case FolderSort.ModifiedNewest:
-                return _folder.Items.OrderByDescending(TargetModified);
+                return items.OrderByDescending(TargetModified);
             case FolderSort.ModifiedOldest:
-                return _folder.Items.OrderBy(TargetModified);
+                return items.OrderBy(TargetModified);
             case FolderSort.CreatedNewest:
-                return _folder.Items.OrderByDescending(AddedTime);
+                return items.OrderByDescending(AddedTime);
             case FolderSort.CreatedOldest:
-                return _folder.Items.OrderBy(AddedTime);
+                return items.OrderBy(AddedTime);
             default:
-                return _folder.Items;   // Custom = the order they were added (appended on add)
+                return items;   // Custom = the order they were added (appended on add)
         }
     }
 
@@ -1284,7 +1433,7 @@ public partial class ExpandedPanelWindow : Window
 
     private void RemoveItem(ShortcutItem item)
     {
-        _store.RemoveShortcut(_folder, item);
+        _store.RemoveShortcut(CurrentListFolder, item);
         _store.RegenerateAndPublish(_folder);   // closed icon reflects first page
         if (_pageIndex >= _folder.PageCount) _pageIndex = _folder.PageCount - 1;
         RenderContent();
@@ -1302,11 +1451,12 @@ public partial class ExpandedPanelWindow : Window
     {
         if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
         var files = (string[])e.Data.GetData(DataFormats.FileDrop);
-        // Multi-file drops arrive in an arbitrary OS order; add them in the folder's chosen sort
-        // order (name / date added / date modified).
+        // Multi-file drops arrive in an arbitrary OS order; add them in natural name order (to the
+        // active tab when the folder is tabbed).
+        var target = CurrentListFolder;
         foreach (var f in Services.FileSort.OrderPaths(files))
         {
-            try { _store.AddShortcut(_folder, f); } catch { }
+            try { _store.AddShortcut(target, f); } catch { }
         }
         _store.RegenerateAndPublish(_folder);
         RenderContent();
