@@ -268,7 +268,7 @@
                          grows in height (MaxHeight set in code) then scrolls. Shown only in List view. -->
                     <DockPanel x:Name="ListRoot" Visibility="Collapsed">
                         <StackPanel x:Name="TabStrip" DockPanel.Dock="Top" Orientation="Horizontal"
-                                    HorizontalAlignment="Left" Margin="0,0,0,8"
+                                    HorizontalAlignment="Center" Margin="0,0,0,10"
                                     VerticalAlignment="Bottom" Visibility="Collapsed"/>
                         <ScrollViewer x:Name="ListContent" Focusable="False"
                                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

@@ -945,21 +945,20 @@ public partial class ExpandedPanelWindow : Window
         _activeTab = Math.Clamp(_activeTab, 0, _folder.Tabs.Count - 1);
         for (int i = 0; i < _folder.Tabs.Count; i++)
             TabStrip.Children.Add(BuildTabPill(i));
-        TabStrip.Children.Add(BuildAddTabPill());
     }
 
     private UIElement BuildTabPill(int idx)
     {
         bool sel = idx == _activeTab;
-        // Tabs are a dark veil over the frost (so they stand out); the selected one is lighter
-        // (reads as merged into the list) and a bit bigger so you can tell which is active.
+        // Rounded pills (all corners) that read like the folder's own icon; a dark veil over the
+        // frost so they stand out. The selected one is lighter and bigger so it's clearly active.
         var pill = new Border
         {
-            CornerRadius = new CornerRadius(9, 9, 0, 0),
-            Margin = new Thickness(0, 0, 5, 0),
-            Padding = sel ? new Thickness(16, 8, 16, 8) : new Thickness(13, 5, 13, 5),
+            CornerRadius = new CornerRadius(13),
+            Margin = new Thickness(4, 0, 4, 0),
+            Padding = sel ? new Thickness(24, 11, 24, 11) : new Thickness(19, 8, 19, 8),
             Background = new SolidColorBrush(sel
-                ? Color.FromArgb(0x12, 0, 0, 0) : Color.FromArgb(0x2C, 0, 0, 0)),
+                ? Color.FromArgb(0x14, 0, 0, 0) : Color.FromArgb(0x2E, 0, 0, 0)),
             Cursor = Cursors.Hand,
             VerticalAlignment = VerticalAlignment.Bottom,
         };
@@ -968,7 +967,7 @@ public partial class ExpandedPanelWindow : Window
         {
             Text = _folder.Tabs[idx].Name,
             Foreground = _panelFg,
-            FontSize = sel ? 14 : 12.5,
+            FontSize = sel ? 15.5 : 14,
             FontWeight = sel ? FontWeights.SemiBold : FontWeights.Normal,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -996,32 +995,8 @@ public partial class ExpandedPanelWindow : Window
 
         var rename = new MenuItem { Header = "Rename tab" };
         rename.Click += (_, _) => BeginTabRename(name, edit, idx);
-        var remove = new MenuItem { Header = "Remove tab" };
-        remove.Click += (_, _) => RemoveTab(idx);
         pill.ContextMenu = new ContextMenu();
         pill.ContextMenu.Items.Add(rename);
-        pill.ContextMenu.Items.Add(remove);
-        return pill;
-    }
-
-    private UIElement BuildAddTabPill()
-    {
-        var pill = new Border
-        {
-            CornerRadius = new CornerRadius(9, 9, 0, 0),
-            Padding = new Thickness(11, 5, 11, 5),
-            Background = new SolidColorBrush(Color.FromArgb(0x1C, 0, 0, 0)),
-            Cursor = Cursors.Hand,
-            VerticalAlignment = VerticalAlignment.Bottom,
-            ToolTip = "New tab",
-            Child = new TextBlock { Text = "+", FontSize = 15, Foreground = _panelFg, FontWeight = FontWeights.SemiBold },
-        };
-        pill.MouseLeftButtonUp += (_, _) =>
-        {
-            var tab = _store.AddTab(_folder, $"Tab {_folder.Tabs.Count + 1}");
-            _activeTab = _folder.Tabs.Count - 1;
-            RenderContent();
-        };
         return pill;
     }
 
@@ -1043,25 +1018,6 @@ public partial class ExpandedPanelWindow : Window
             else if (e.Key == System.Windows.Input.Key.Escape) { e.Handled = true; RenderContent(); }
         };
         edit.LostKeyboardFocus += (_, _) => { if (edit.Visibility == Visibility.Visible) Commit(); };
-    }
-
-    private void RemoveTab(int idx)
-    {
-        if (idx < 0 || idx >= _folder.Tabs.Count) return;
-        var tab = _folder.Tabs[idx];
-        if (tab.Folder.Items.Count > 0)
-        {
-            SuppressAutoClose = true;
-            var ok = MessageBox.Show(this,
-                $"Remove the tab “{tab.Name}” and its {tab.Folder.Items.Count} item(s)?",
-                "Glass Folders", MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
-            SuppressAutoClose = false;
-            if (!ok) return;
-        }
-        _store.RemoveTab(_folder, idx);
-        if (_activeTab >= _folder.Tabs.Count) _activeTab = Math.Max(0, _folder.Tabs.Count - 1);
-        _store.RegenerateAndPublish(_folder);
-        RenderContent();
     }
 
     /// <summary>The current list's items in the chosen sort order (Custom = as added). Uses the
