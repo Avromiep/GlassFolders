@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.54";
+    public const string AppVersion = "0.3.55";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -210,6 +210,56 @@ public partial class App : Application
                 timer.Start();
             }
             catch (Exception ex) { LogCrash("shotmgrtabs", ex); Shutdown(); }
+            return;
+        }
+
+        if (e.Args.Length >= 1 && e.Args[0].Equals("--fixtest", StringComparison.OrdinalIgnoreCase))
+        {
+            var dir = e.Args.Length >= 2 ? e.Args[1] : System.IO.Path.GetTempPath();
+            var sb = new System.Text.StringBuilder();
+            try
+            {
+                var tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "gf-fixtest-" + Guid.NewGuid().ToString("N"));
+                DesktopIntegration.DesktopDirOverride = System.IO.Path.Combine(tempRoot, "desktop");
+                Directory.CreateDirectory(DesktopIntegration.DesktopDirOverride);
+                var store = new FolderStore(tempRoot);
+
+                // Issue 1: rename must MOVE the existing desktop .lnk (same file), not delete+create.
+                var f = store.CreateFolder("RenOld");
+                store.AddShortcut(f, @"C:\Windows\System32\notepad.exe");
+                store.RegenerateAndPublish(f);
+                var oldLnk = DesktopIntegration.DesktopLnkPathFor("RenOld");
+                bool oldExisted = File.Exists(oldLnk);
+                long oldId = oldExisted ? new FileInfo(oldLnk).CreationTimeUtc.Ticks : 0;
+                store.RenameFolder(f, "RenNew");
+                var newLnk = DesktopIntegration.DesktopLnkPathFor("RenNew");
+                bool movedInPlace = oldExisted && !File.Exists(oldLnk) && File.Exists(newLnk)
+                    && new FileInfo(newLnk).CreationTimeUtc.Ticks == oldId; // same original file carried over
+                sb.AppendLine($"[issue1] oldLnkBefore={oldExisted} oldGone={!File.Exists(oldLnk)} newExists={File.Exists(newLnk)} sameFile(carried)={movedInPlace}");
+
+                // Issue 3 (store side): a committed tab rename persists through reload.
+                var t = store.CreateFolder("TabTest");
+                t.View = FolderView.List; store.SaveSettings(t);
+                store.EnableTabs(t);
+                store.RenameTab(t, 0, "Clients");
+                store.RenameTab(t, 1, "Data Center");
+                var reloaded = new FolderStore(tempRoot).FindByName("TabTest");
+                sb.AppendLine($"[issue3-store] tab0={reloaded?.Tabs.ElementAtOrDefault(0)?.Name} tab1={reloaded?.Tabs.ElementAtOrDefault(1)?.Name}");
+
+                // Issue 3 (UI): typing a tab name then clicking AWAY (no Enter) must keep the text.
+                var mgr = new ManagerWindow(store)
+                { WindowStartupLocation = WindowStartupLocation.Manual, Left = -32000, Top = 40 };
+                mgr.Show();
+                // manager auto-selects the first folder ("RenNew"); point it at the tabbed one.
+                var savedUi = mgr.TestEditFirstFolderTabName("TabTest", "Servers");
+                sb.AppendLine($"[issue3-ui] typed=Servers saved={savedUi} pass={savedUi == "Servers"}");
+                mgr.Close();
+
+                try { Directory.Delete(tempRoot, true); } catch { }
+            }
+            catch (Exception ex) { sb.AppendLine("ERROR: " + ex); }
+            try { File.WriteAllText(System.IO.Path.Combine(dir, "fixtest.txt"), sb.ToString()); } catch { }
+            Shutdown();
             return;
         }
 

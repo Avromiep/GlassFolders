@@ -15,6 +15,8 @@ public partial class ExpandedPanelWindow : Window
     private FolderModel _folder = null!;   // set per-open in OpenFor (one window is reused)
     private int _pageIndex;
     private int _activeTab;                 // selected tab in a tabbed list folder
+    private int _listGen;                   // bumps per list render so stale async icon loads bail
+    private readonly List<(ShortcutItem item, System.Windows.Controls.Image image)> _listIconQueue = new();
 
     /// <summary>The list currently shown: the active tab's sub-list when tabbed, else the folder.</summary>
     private FolderModel CurrentListFolder =>
@@ -919,11 +921,51 @@ public partial class ExpandedPanelWindow : Window
 
     private void RenderList()
     {
+        // Build the rows synchronously (fast: no icon work) so the window sizes + appears instantly,
+        // then fill file-row icons off the UI thread. Resolving each shortcut's target + extracting
+        // its shell icon is ~tens of ms each; doing all of them inline made a many-file list take
+        // ~400ms+ to open vs ~6ms for a grid page. The generation guard drops stale fills when the
+        // user switches tab/folder mid-load.
+        int gen = ++_listGen;
+        _listIconQueue.Clear();
         ItemsList.Items.Clear();
         foreach (var item in SortedItems())
             ItemsList.Items.Add(BuildListRow(item));
         // Grow with the file count up to ~the monitor's height, then the ScrollViewer takes over.
         ListContent.MaxHeight = ComputeListMaxHeight();
+        LoadListIconsAsync(gen);
+    }
+
+    /// <summary>Fills each file row's icon off the UI thread (cached + frozen, so assignment is cheap),
+    /// bailing if a newer list render has started.</summary>
+    private async void LoadListIconsAsync(int gen)
+    {
+        var work = _listIconQueue.ToArray();
+        foreach (var (item, image) in work)
+        {
+            if (gen != _listGen) return;
+            System.Windows.Media.ImageSource? src = null;
+            try { src = await Task.Run(() => FileRowIcon(item)); } catch { }
+            if (gen != _listGen) return;
+            if (src != null) image.Source = src;
+        }
+    }
+
+    /// <summary>The underlying file's own shell icon (no shortcut-arrow overlay), thread-safe so it
+    /// can run off the UI thread. Icons are cached + frozen by ImageHelper.</summary>
+    private static System.Windows.Media.ImageSource? FileRowIcon(ShortcutItem item)
+    {
+        try
+        {
+            var target = ShellLink.ResolveTarget(item.LnkPath);
+            if (!string.IsNullOrEmpty(target) && System.IO.File.Exists(target))
+            {
+                var ico = ImageHelper.LoadIcon(target, 128);
+                if (ico != null) return ico;
+            }
+        }
+        catch { }
+        try { return ImageHelper.LoadIcon(item.LnkPath, 128); } catch { return null; }
     }
 
     /// <summary>Test/screenshot hook: select a tab and re-render.</summary>
@@ -1086,12 +1128,24 @@ public partial class ExpandedPanelWindow : Window
         {
             Width = 20,
             Height = 20,
-            Source = IconForItem(item, stripArrow: true),
             Stretch = Stretch.Uniform,
             SnapsToDevicePixels = true,
             VerticalAlignment = VerticalAlignment.Center,
         };
         RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+
+        // Nested-folder rows (rare in a list) render their composite now; file rows get their icon
+        // filled asynchronously by LoadListIconsAsync so the window opens without waiting on them.
+        var nested = NestedFolderNameOf(item.LnkPath);
+        if (nested != null && _store.FindByName(nested) is FolderModel nf)
+        {
+            try { image.Source = ImageHelper.ToImageSource(IconComposer.RenderPreview(nf.FirstPagePaths(), 128)); }
+            catch { }
+        }
+        else
+        {
+            _listIconQueue.Add((item, image));
+        }
 
         var label = new TextBlock
         {

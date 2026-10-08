@@ -105,6 +105,7 @@ internal static class NativeMethods
     internal const int SHCNE_ASSOCCHANGED = 0x08000000;
     internal const int SHCNE_UPDATEITEM = 0x00002000;
     internal const int SHCNE_DELETE = 0x00000004;   // an item was deleted (removes a stale desktop icon)
+    internal const int SHCNE_RENAMEITEM = 0x00000001; // an item was renamed (Explorer keeps its position)
 
     /// <summary>Explorer's "natural"/numeric-aware string compare (Server-2 &lt; Server-10).</summary>
     [DllImport("shlwapi.dll", CharSet = CharSet.Unicode)]

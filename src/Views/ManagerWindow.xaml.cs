@@ -19,6 +19,8 @@ public partial class ManagerWindow : Window
     private bool _loadingSettings;
     private bool _dark;
     private int _managerTab;   // which tab the preview shows/edits (when the folder is tabbed)
+    private readonly List<Border> _tabChips = new();
+    private readonly List<TextBox> _tabBoxes = new();
     private bool _gridView = true;
 
     private List<AppVM> _appVMs = new();
@@ -776,48 +778,51 @@ public partial class ManagerWindow : Window
     // ---- Tab manager (name / add / delete tabs) ----
 
     /// <summary>Rebuilds the tab chips under "Use tabs": each chip is an editable name + a delete
-    /// button, plus an "Add tab" button. Shown only when the folder is tabbed.</summary>
+    /// button, plus an "Add tab" button. Shown only when the folder is tabbed. NOTE: a full rebuild
+    /// recreates the name text boxes, so it runs ONLY on folder-select / tabs-toggle / add / delete —
+    /// never while a name is being edited (switching tabs just recolors existing chips).</summary>
     private void BuildTabManager()
     {
         if (TabManageRow == null || TabChipsHost == null) return;
 
+        _tabChips.Clear();
+        _tabBoxes.Clear();
+        TabChipsHost.Children.Clear();
+
         if (_current == null || !_current.Tabbed || _current.Tabs.Count == 0)
         {
             TabManageRow.Visibility = Visibility.Collapsed;
-            TabChipsHost.Children.Clear();
             return;
         }
 
         TabManageRow.Visibility = Visibility.Visible;
         _managerTab = Math.Clamp(_managerTab, 0, _current.Tabs.Count - 1);
-        TabChipsHost.Children.Clear();
 
         for (int i = 0; i < _current.Tabs.Count; i++)
             TabChipsHost.Children.Add(BuildTabChip(i));
 
         TabChipsHost.Children.Add(BuildAddTabButton());
+        UpdateTabChipHighlight();
     }
 
     private UIElement BuildTabChip(int idx)
     {
-        bool sel = idx == _managerTab;
         var chip = new Border
         {
             CornerRadius = new CornerRadius(8),
             Margin = new Thickness(0, 0, 8, 8),
             Padding = new Thickness(9, 4, 6, 4),
-            Background = sel ? (Brush)Resources["Sel"] : (Brush)Resources["CtrlBg"],
-            BorderBrush = sel ? (Brush)Resources["Accent"] : (Brush)Resources["CardBorder"],
-            BorderThickness = new Thickness(sel ? 1.5 : 1),
+            BorderThickness = new Thickness(1),
             Cursor = Cursors.Hand,
         };
 
-        // Editable name — type to rename. Commits on Enter or focus loss.
+        // Editable name — type to rename. Keeps WHATEVER you type: it commits on Enter AND on click-
+        // away (LostKeyboardFocus). Selecting another tab never rebuilds this box, so edits survive.
         var name = new TextBox
         {
             Text = _current!.Tabs[idx].Name,
             MinWidth = 64,
-            MaxWidth = 150,
+            MaxWidth = 160,
             FontSize = 12.5,
             Foreground = (Brush)Resources["Fg"],
             Background = Brushes.Transparent,
@@ -827,17 +832,16 @@ public partial class ManagerWindow : Window
             VerticalContentAlignment = VerticalAlignment.Center,
             CaretBrush = (Brush)Resources["Fg"],
         };
-        name.GotKeyboardFocus += (_, _) => { if (idx != _managerTab) SelectManagerTab(idx); };
         void CommitName()
         {
+            if (_current == null || idx >= _current.Tabs.Count) return;
             var t = name.Text.Trim();
-            if (string.IsNullOrEmpty(t)) { name.Text = _current!.Tabs[idx].Name; return; }
-            if (t != _current!.Tabs[idx].Name)
-            {
-                _store.RenameTab(_current, idx, t);
-                _store.RegenerateAndPublish(_current);
-            }
+            if (string.IsNullOrEmpty(t)) { name.Text = _current.Tabs[idx].Name; return; }
+            if (t != _current.Tabs[idx].Name) _store.RenameTab(_current, idx, t);  // saves tabs.txt
         }
+        // Clicking into a (possibly non-selected) tab's name selects it WITHOUT a rebuild, so the box
+        // you just clicked stays alive and keyboard focus sticks.
+        name.GotKeyboardFocus += (_, _) => SelectTab(idx, rebuild: false);
         name.KeyDown += (_, e) =>
         {
             if (e.Key == System.Windows.Input.Key.Enter) { CommitName(); Keyboard.ClearFocus(); e.Handled = true; }
@@ -845,7 +849,6 @@ public partial class ManagerWindow : Window
         };
         name.LostKeyboardFocus += (_, _) => CommitName();
 
-        // Delete button (×)
         var del = new TextBlock
         {
             Text = "✕",
@@ -865,11 +868,15 @@ public partial class ManagerWindow : Window
         inner.Children.Add(del);
         chip.Child = inner;
 
-        // Click the chip body (not the delete ✕) selects the tab for the preview.
+        // Click the chip body (not the ✕, not the text box) selects the tab for the preview.
         chip.PreviewMouseLeftButtonDown += (_, e) =>
         {
-            if (idx != _managerTab && !ReferenceEquals(e.OriginalSource, del)) SelectManagerTab(idx);
+            if (!ReferenceEquals(e.OriginalSource, del) && e.OriginalSource is not TextBox)
+                SelectTab(idx, rebuild: false);
         };
+
+        _tabChips.Add(chip);
+        _tabBoxes.Add(name);
         return chip;
     }
 
@@ -898,8 +905,8 @@ public partial class ManagerWindow : Window
         add.MouseLeftButtonUp += (_, _) =>
         {
             if (_current == null) return;
+            CommitPendingTabEdit();     // keep any name being typed before we rebuild
             _store.AddTab(_current, $"Tab {_current.Tabs.Count + 1}");
-            _store.RegenerateAndPublish(_current);
             _managerTab = _current.Tabs.Count - 1;   // select the new tab
             BuildTabManager();
             RefreshApps();
@@ -907,17 +914,59 @@ public partial class ManagerWindow : Window
         return add;
     }
 
-    private void SelectManagerTab(int idx)
+    /// <summary>Recolors the chips for the current selection without recreating them (so editing a
+    /// name is never interrupted).</summary>
+    private void UpdateTabChipHighlight()
+    {
+        for (int i = 0; i < _tabChips.Count; i++)
+        {
+            bool sel = i == _managerTab;
+            _tabChips[i].Background = sel ? (Brush)Resources["Sel"] : (Brush)Resources["CtrlBg"];
+            _tabChips[i].BorderBrush = sel ? (Brush)Resources["Accent"] : (Brush)Resources["CardBorder"];
+            _tabChips[i].BorderThickness = new Thickness(sel ? 1.5 : 1);
+            if (i < _tabBoxes.Count)
+                _tabBoxes[i].FontWeight = sel ? FontWeights.SemiBold : FontWeights.Normal;
+        }
+    }
+
+    /// <summary>If a tab name is mid-edit, flush it (its LostKeyboardFocus commit) before we rebuild.</summary>
+    private void CommitPendingTabEdit()
+    {
+        if (Keyboard.FocusedElement is TextBox tb && _tabBoxes.Contains(tb))
+            Keyboard.ClearFocus();
+    }
+
+    /// <summary>Test hook: select <paramref name="folderName"/>, type a new name into tab 0 and move
+    /// focus AWAY (no Enter) — simulating the "type then click elsewhere" the user reported. Returns
+    /// the saved name afterwards; it should equal <paramref name="typed"/>, proving click-away commits.</summary>
+    internal string? TestEditFirstFolderTabName(string folderName, string typed)
+    {
+        ReloadFolders(folderName);   // selects it → PopulateSettings → BuildTabManager
+        if (_tabBoxes.Count == 0 || _current == null) return null;
+        var box = _tabBoxes[0];
+        box.Focus();
+        Keyboard.Focus(box);
+        box.Text = typed;
+        // Move focus to another control WITHOUT pressing Enter — fires LostKeyboardFocus (commit).
+        TabsCheck.Focus();
+        Keyboard.Focus(TabsCheck);
+        return _current.Tabs.Count > 0 ? _current.Tabs[0].Name : null;
+    }
+
+    private void SelectTab(int idx, bool rebuild)
     {
         if (_current == null) return;
-        _managerTab = Math.Clamp(idx, 0, _current.Tabs.Count - 1);
-        BuildTabManager();
+        int clamped = Math.Clamp(idx, 0, _current.Tabs.Count - 1);
+        if (clamped == _managerTab && !rebuild) { UpdateTabChipHighlight(); return; }
+        _managerTab = clamped;
+        if (rebuild) BuildTabManager(); else UpdateTabChipHighlight();
         RefreshApps();
     }
 
     private void DeleteManagerTab(int idx)
     {
         if (_current == null || idx < 0 || idx >= _current.Tabs.Count) return;
+        CommitPendingTabEdit();
         var tab = _current.Tabs[idx];
         if (tab.Folder.Items.Count > 0 &&
             !ModernDialogWindow.Confirm(this, "Delete tab",
@@ -930,7 +979,7 @@ public partial class ManagerWindow : Window
         _current = _store.FindByName(_current.Name) ?? _current;
         if (!_current.Tabbed) { _managerTab = 0; TabsCheck.IsChecked = false; }
         else _managerTab = Math.Clamp(_managerTab, 0, _current.Tabs.Count - 1);
-        _store.RegenerateAndPublish(_current);
+        _store.RegenerateAndPublish(_current);   // tab 0 may have changed → refresh closed icon
         BuildTabManager();
         RefreshApps();
         RefreshFolderMiniIcon();

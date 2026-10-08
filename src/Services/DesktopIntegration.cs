@@ -109,6 +109,36 @@ public static class DesktopIntegration
         NotifyDeleted(lnkPath);
     }
 
+    /// <summary>Renames the desktop .lnk in place (old name → new name) and tells the shell it was
+    /// RENAMED — Explorer keeps a renamed item exactly where it sat. This is what preserves the
+    /// folder's on-desktop position across a rename; deleting the old + creating a new .lnk instead
+    /// makes Explorer re-place the icon at the default slot (top-left of the primary monitor).
+    /// Returns true if an existing desktop .lnk was moved (so the caller overwrites it in place
+    /// rather than creating a fresh one).</summary>
+    public static bool RenameDesktopShortcut(string oldName, string newName)
+    {
+        var oldPath = DesktopLnkPathFor(oldName);
+        var newPath = DesktopLnkPathFor(newName);
+        if (string.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase)) return File.Exists(newPath);
+        if (!File.Exists(oldPath)) return false;    // nothing on the desktop to move (e.g. hidden folder)
+        try
+        {
+            if (File.Exists(newPath)) File.Delete(newPath);
+            File.Move(oldPath, newPath);
+            NotifyRenamed(oldPath, newPath);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Notify the shell that <paramref name="oldPath"/> became <paramref name="newPath"/>.</summary>
+    private static void NotifyRenamed(string oldPath, string newPath)
+    {
+        IntPtr a = Marshal.StringToHGlobalUni(oldPath), b = Marshal.StringToHGlobalUni(newPath);
+        try { SHChangeNotify(SHCNE_RENAMEITEM, SHCNF_PATHW | SHCNF_FLUSH, a, b); }
+        finally { Marshal.FreeHGlobal(a); Marshal.FreeHGlobal(b); }
+    }
+
     /// <summary>Notify the shell that <paramref name="path"/> was deleted (removes a stale icon).</summary>
     public static void NotifyDeleted(string path)
     {

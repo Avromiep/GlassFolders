@@ -162,9 +162,14 @@ public sealed class FolderStore
         // Renaming onto an existing folder would throw a raw IO error; give a clear one instead.
         if (Directory.Exists(newDir))
             throw new InvalidOperationException($"A folder named “{Sanitize(newName)}” already exists.");
+        var oldName = folder.Name;
         Directory.Move(folder.DirectoryPath, newDir);
-        DesktopIntegration.RemoveDesktopShortcut(folder.Name);
         var moved = LoadFolder(newDir);
+        // Preserve the icon's spot on the desktop: RENAME the existing .lnk in place (Explorer keeps
+        // a renamed item where it was) instead of delete-old + create-new, which would re-drop the
+        // icon at the default slot on the primary monitor. RegenerateAndPublish then overwrites the
+        // now-renamed .lnk in place with the new name's target/icon, keeping its position.
+        DesktopIntegration.RenameDesktopShortcut(oldName, moved.Name);
         RegenerateAndPublish(moved);
     }
 
