@@ -1348,7 +1348,15 @@ public partial class ExpandedPanelWindow : Window
             TitleText.Text = _folder.Name;
             RenderContent();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // Tell the user why (e.g. the name clashes with an existing folder or desktop shortcut)
+            // instead of silently reverting. Keep the panel open while the dialog is up.
+            bool prior = SuppressAutoClose;
+            SuppressAutoClose = true;
+            try { MessageBox.Show(this, ex.Message, "Rename folder", MessageBoxButton.OK, MessageBoxImage.Warning); }
+            finally { SuppressAutoClose = prior; }
+        }
     }
 
     // ---- Actions ----

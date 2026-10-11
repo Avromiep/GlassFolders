@@ -121,12 +121,27 @@ public static class DesktopIntegration
         var newPath = DesktopLnkPathFor(newName);
         if (string.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase)) return File.Exists(newPath);
         if (!File.Exists(oldPath)) return false;    // nothing on the desktop to move (e.g. hidden folder)
+        // Never clobber a desktop .lnk that isn't ours (e.g. the user's own "Chrome" shortcut when a
+        // folder is renamed to "Chrome"). The rename is refused upstream in that case; guard here too.
+        if (File.Exists(newPath) && !IsOurFolderShortcut(newPath)) return false;
         try
         {
             if (File.Exists(newPath)) File.Delete(newPath);
             File.Move(oldPath, newPath);
             NotifyRenamed(oldPath, newPath);
             return true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>True if the .lnk at <paramref name="path"/> is one of our folder shortcuts (carries our
+    /// per-folder AppUserModelID), as opposed to an unrelated desktop shortcut the user created.</summary>
+    public static bool IsOurFolderShortcut(string path)
+    {
+        try
+        {
+            return ShellLink.ReadAppUserModelId(path)?
+                .StartsWith("Avromiep.GlassFolders.Folder.", StringComparison.OrdinalIgnoreCase) == true;
         }
         catch { return false; }
     }

@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.57";
+    public const string AppVersion = "0.3.58";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -266,6 +266,33 @@ public partial class App : Application
                 sb.AppendLine($"[reorder] before={before}");
                 sb.AppendLine($"[reorder] after0->2={after}");
                 mgr.Close();
+
+                // Reserved-name sanitize (#6)
+                sb.AppendLine($"[reserved] CON->{FolderStore.Sanitize("CON")} NUL.txt->{FolderStore.Sanitize("NUL.txt")} LPT1->{FolderStore.Sanitize("LPT1")}");
+
+                // Rename clobber guard (#12): a FOREIGN desktop .lnk named "Chrome" must survive a
+                // folder rename to "Chrome" (rename refused, shortcut untouched).
+                var foreign = DesktopIntegration.DesktopLnkPathFor("Chrome");
+                ShellLink.Create(foreign, targetPath: @"C:\Windows\System32\notepad.exe", arguments: null); // no AUMID = not ours
+                bool foreignBefore = File.Exists(foreign);
+                var rf = store.CreateFolder("RenMe");
+                string renameMsg;
+                try { store.RenameFolder(rf, "Chrome"); renameMsg = "allowed (BAD)"; }
+                catch (Exception ex) { renameMsg = "refused: " + ex.Message.Split('.')[0]; }
+                sb.AppendLine($"[rename-clobber] foreignBefore={foreignBefore} foreignStillExists={File.Exists(foreign)} isOurs={DesktopIntegration.IsOurFolderShortcut(foreign)} rename={renameMsg}");
+
+                // Clear a tabbed folder (#15): both tabs must empty out.
+                var tc = store.CreateFolder("ClearTabs");
+                tc.View = FolderView.List; store.SaveSettings(tc); store.EnableTabs(tc);
+                store.AddShortcut(tc.Tabs[0].Folder, @"C:\Windows\System32\notepad.exe");
+                store.AddShortcut(tc.Tabs[1].Folder, @"C:\Windows\System32\calc.exe");
+                int tabItemsBefore = tc.Tabs.Sum(t => t.Folder.Items.Count);
+                store.ClearFolder(tc);
+                sb.AppendLine($"[clear-tabbed] before={tabItemsBefore} after={tc.Tabs.Sum(t => t.Folder.Items.Count)}");
+
+                // Tab-name with a tab char (#17) must not contain a tab in tabs.txt.
+                store.RenameTab(tc, 0, "Foo\tBar");
+                sb.AppendLine($"[tabname] stored='{tc.Tabs[0].Name}' hasTab={tc.Tabs[0].Name.Contains('\t')}");
 
                 try { Directory.Delete(tempRoot, true); } catch { }
             }
@@ -923,9 +950,11 @@ public partial class App : Application
             // Dropping apps onto the closed folder icon: add them and refresh the icon, but
             // DON'T open the panel (the folder shouldn't "launch" just because you dropped on it).
             // Windows hands multi-file drops in an arbitrary order, so add them in the folder's
-            // chosen sort order (name / date added / date modified).
+            // chosen sort order (name / date added / date modified). A tabbed folder keeps its items
+            // in tab sub-lists, so add to the first tab (else they'd land in the hidden root).
+            var dropTarget = folder.Tabbed && folder.Tabs.Count > 0 ? folder.Tabs[0].Folder : folder;
             foreach (var f in Services.FileSort.OrderPaths(filesToAdd))
-                try { _store.AddShortcut(folder, f); } catch { }
+                try { _store.AddShortcut(dropTarget, f); } catch { }
             _store.RegenerateAndPublish(folder);
             _manager?.NotifyFolderChanged(openName);  // live-refresh the manager if it's showing this folder
             return;

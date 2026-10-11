@@ -162,6 +162,12 @@ public sealed class FolderStore
         // Renaming onto an existing folder would throw a raw IO error; give a clear one instead.
         if (Directory.Exists(newDir))
             throw new InvalidOperationException($"A folder named “{Sanitize(newName)}” already exists.");
+        // Refuse if the desktop already has a shortcut with that name that ISN'T ours — otherwise the
+        // in-place rename would overwrite the user's own shortcut (e.g. renaming to "Chrome").
+        var targetLnk = DesktopIntegration.DesktopLnkPathFor(Sanitize(newName));
+        if (File.Exists(targetLnk) && !DesktopIntegration.IsOurFolderShortcut(targetLnk))
+            throw new InvalidOperationException(
+                $"A desktop shortcut named “{Sanitize(newName)}” already exists. Remove or rename it first.");
         var oldName = folder.Name;
         Directory.Move(folder.DirectoryPath, newDir);
         var moved = LoadFolder(newDir);
@@ -228,6 +234,18 @@ public sealed class FolderStore
     /// <summary>Removes every shortcut from the folder but keeps the folder (and its settings).</summary>
     public void ClearFolder(FolderModel folder)
     {
+        // A tabbed folder's items live in its tab sub-lists, not folder.Items — clear every tab.
+        if (folder.Tabbed && folder.Tabs.Count > 0)
+        {
+            foreach (var tab in folder.Tabs)
+            {
+                foreach (var it in tab.Folder.Items.ToList())
+                    try { File.Delete(it.LnkPath); } catch { }
+                tab.Folder.Items.Clear();
+                SaveOrder(tab.Folder);
+            }
+            return;
+        }
         foreach (var it in folder.Items.ToList())
             try { File.Delete(it.LnkPath); } catch { }
         folder.Items.Clear();
@@ -316,11 +334,17 @@ public sealed class FolderStore
         SaveSettings(folder);
     }
 
+    /// <summary>tabs.txt is one "dir\tName" line per tab, so a tab or newline in the name would corrupt
+    /// it — flatten those to spaces.</summary>
+    private static string CleanTabName(string name) =>
+        (name ?? "").Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ').Trim();
+
     public FolderTab AddTab(FolderModel folder, string name)
     {
         var dir = FreshTabDir(folder);
         var sub = LoadFolder(dir); sub.View = folder.View; sub.Sort = folder.Sort;
-        var tab = new FolderTab { Name = string.IsNullOrWhiteSpace(name) ? $"Tab {folder.Tabs.Count + 1}" : name, Folder = sub };
+        var clean = CleanTabName(name);
+        var tab = new FolderTab { Name = string.IsNullOrWhiteSpace(clean) ? $"Tab {folder.Tabs.Count + 1}" : clean, Folder = sub };
         folder.Tabs.Add(tab);
         SaveTabs(folder);
         return tab;
@@ -328,8 +352,9 @@ public sealed class FolderStore
 
     public void RenameTab(FolderModel folder, int index, string name)
     {
-        if (index < 0 || index >= folder.Tabs.Count || string.IsNullOrWhiteSpace(name)) return;
-        folder.Tabs[index].Name = name.Trim();
+        var clean = CleanTabName(name);
+        if (index < 0 || index >= folder.Tabs.Count || string.IsNullOrWhiteSpace(clean)) return;
+        folder.Tabs[index].Name = clean;
         SaveTabs(folder);
     }
 
@@ -384,6 +409,13 @@ public sealed class FolderStore
         return candidate;
     }
 
+    private static readonly HashSet<string> ReservedNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
+
     public static string Sanitize(string name)
     {
         name ??= "";
@@ -394,6 +426,10 @@ public sealed class FolderStore
         // otherwise create/delete would operate on %LOCALAPPDATA%\GlassFolders and could wipe
         // every folder. Anything that collapses to empty/dots becomes a safe placeholder.
         if (name.Length == 0 || name == "." || name == "..") name = "_";
+        // Windows reserves device names (CON, NUL, COM1…) — a directory named one of these can't be
+        // created, so prefix it. Matches on the stem (CON and CON.txt both count).
+        var stem = Path.GetFileNameWithoutExtension(name);
+        if (ReservedNames.Contains(name) || ReservedNames.Contains(stem)) name = "_" + name;
         return name;
     }
 
