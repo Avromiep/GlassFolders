@@ -515,6 +515,20 @@ public partial class ManagerWindow : Window
         return string.Join(",", (reloaded?.Items ?? new()).Select(i => i.DisplayName));
     }
 
+    /// <summary>Test hook: runs the Clear button's own count/guard logic (minus the confirm dialog)
+    /// on <paramref name="folderName"/> and returns "count-&gt;remaining", to catch the UI handler
+    /// short-circuiting on a tabbed folder's empty root.</summary>
+    internal string TestClearViaUi(string folderName)
+    {
+        ReloadFolders(folderName);
+        if (_current == null) return "no-folder";
+        int count = _current.Tabbed ? _current.Tabs.Sum(t => t.Folder.Items.Count) : _current.Items.Count;
+        if (count == 0) return "0->0 (guard stopped)";
+        _store.ClearFolder(_current);
+        int remaining = _current.Tabbed ? _current.Tabs.Sum(t => t.Folder.Items.Count) : _current.Items.Count;
+        return $"{count}->{remaining}";
+    }
+
     // Hide the OS drag cursor — the floating icon is the pointer now.
     private void Drag_GiveFeedback(object sender, GiveFeedbackEventArgs e)
     {
@@ -678,6 +692,15 @@ public partial class ManagerWindow : Window
     {
         var name = ModernDialogWindow.Prompt(this, "New folder", "Enter a name:", "Folder");
         if (string.IsNullOrWhiteSpace(name)) return;
+        // Don't create a folder whose desktop icon would land on one of the user's own shortcuts.
+        var lnk = DesktopIntegration.DesktopLnkPathFor(FolderStore.Sanitize(name));
+        if (File.Exists(lnk) && !DesktopIntegration.IsOurFolderShortcut(lnk))
+        {
+            System.Windows.MessageBox.Show(this,
+                $"A desktop shortcut named “{FolderStore.Sanitize(name)}” already exists. Pick a different name.",
+                "New folder", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+            return;
+        }
         var created = _store.CreateFolder(name);
         ReloadFolders(created.Name);
     }
@@ -712,9 +735,13 @@ public partial class ManagerWindow : Window
     private void Clear_Click(object sender, RoutedEventArgs e)
     {
         if (_current == null) return;
-        if (_current.Items.Count == 0) return;
+        // A tabbed folder keeps its items in tabs, so count those — not the (always-empty) root.
+        int count = _current.Tabbed
+            ? _current.Tabs.Sum(t => t.Folder.Items.Count)
+            : _current.Items.Count;
+        if (count == 0) return;
         if (!ModernDialogWindow.Confirm(this, "Clear this folder?",
-                $"Remove all {_current.Items.Count} shortcut(s) from “{_current.Name}”? " +
+                $"Remove all {count} shortcut(s) from “{_current.Name}”? " +
                 "The folder stays; your original files/apps are not deleted.",
                 okText: "Clear", cancelText: "Cancel", danger: true))
             return;

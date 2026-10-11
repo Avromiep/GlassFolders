@@ -30,12 +30,28 @@ public static class FolderIO
         public string? nested { get; set; }
     }
 
+    private sealed class TabDto
+    {
+        public string name { get; set; } = "";
+        public List<AppDto> apps { get; set; } = new();
+    }
+
     private sealed class FolderDto
     {
         public string name { get; set; } = "";
         public int frostiness { get; set; } = FolderModel.DefaultFrostiness;
         public bool onDesktop { get; set; } = true;
         public int panelPosition { get; set; } = 4;
+        // View ("Grid"/"List"), Sort (FolderSort name), and the per-folder "opens on" monitor. All
+        // optional so older exports (which lacked them) still import with sensible defaults.
+        public string? view { get; set; }
+        public string? sort { get; set; }
+        public string? panelMonitor { get; set; }      // machine-specific device name (e.g. \\.\DISPLAY2)
+        public string? panelMonitorRect { get; set; }
+        // Tabbed list folders keep their items in named tabs, so export those instead of the (empty)
+        // root apps list; null/empty tabs == a plain (non-tabbed) folder using `apps`.
+        public bool tabbed { get; set; }
+        public List<TabDto>? tabs { get; set; }
         public List<AppDto> apps { get; set; } = new();
     }
 
@@ -52,33 +68,48 @@ public static class FolderIO
                 frostiness = f.Frostiness,
                 onDesktop = f.OnDesktop,
                 panelPosition = f.PanelPosition,
+                view = f.View.ToString(),
+                sort = f.Sort.ToString(),
+                panelMonitor = f.PanelMonitor,
+                panelMonitorRect = f.PanelMonitorRect,
+                tabbed = f.Tabbed,
             };
-            foreach (var item in f.Items)
-            {
-                // A nested-folder tile is exported as a folder reference, not a path to our exe.
-                var nested = FolderStore.NestedFolderName(item.LnkPath);
-                if (nested != null)
-                {
-                    dto.apps.Add(new AppDto { name = item.DisplayName, nested = nested });
-                    continue;
-                }
-                var target = ShellLink.ResolveTarget(item.LnkPath);
-                var (iconPath, iconIndex) = ShellLink.ReadIconLocation(item.LnkPath);
-                dto.apps.Add(new AppDto
-                {
-                    name = item.DisplayName,
-                    target = target,
-                    file = target != null ? Path.GetFileName(target) : null,
-                    args = ShellLink.ReadArguments(item.LnkPath),
-                    // Tokenize per-user prefixes so an icon under this user's AppData still
-                    // resolves under a different username on the importing machine.
-                    icon = Tokenize(iconPath),
-                    iconIndex = iconIndex,
-                });
-            }
+            if (f.Tabbed && f.Tabs.Count > 0)
+                dto.tabs = f.Tabs.Select(t => new TabDto { name = t.Name, apps = ExportApps(t.Folder.Items) }).ToList();
+            else
+                dto.apps = ExportApps(f.Items);
             list.Add(dto);
         }
         File.WriteAllText(path, JsonSerializer.Serialize(list, JsonOpts));
+    }
+
+    private static List<AppDto> ExportApps(IEnumerable<ShortcutItem> items)
+    {
+        var apps = new List<AppDto>();
+        foreach (var item in items)
+        {
+            // A nested-folder tile is exported as a folder reference, not a path to our exe.
+            var nested = FolderStore.NestedFolderName(item.LnkPath);
+            if (nested != null)
+            {
+                apps.Add(new AppDto { name = item.DisplayName, nested = nested });
+                continue;
+            }
+            var target = ShellLink.ResolveTarget(item.LnkPath);
+            var (iconPath, iconIndex) = ShellLink.ReadIconLocation(item.LnkPath);
+            apps.Add(new AppDto
+            {
+                name = item.DisplayName,
+                target = target,
+                file = target != null ? Path.GetFileName(target) : null,
+                args = ShellLink.ReadArguments(item.LnkPath),
+                // Tokenize per-user prefixes so an icon under this user's AppData still
+                // resolves under a different username on the importing machine.
+                icon = Tokenize(iconPath),
+                iconIndex = iconIndex,
+            });
+        }
+        return apps;
     }
 
     public static ImportSummary Import(FolderStore store, string path)
@@ -93,30 +124,60 @@ public static class FolderIO
             folder.Frostiness = Math.Clamp(dto.frostiness, 0, 100);
             folder.OnDesktop = dto.onDesktop;
             folder.PanelPosition = dto.panelPosition;
-            store.SaveSettings(folder);
+            if (Enum.TryParse<FolderView>(dto.view, out var v)) folder.View = v;
+            if (Enum.TryParse<FolderSort>(dto.sort, out var s)) folder.Sort = s;
+            folder.PanelMonitor = dto.panelMonitor;
+            folder.PanelMonitorRect = dto.panelMonitorRect;
 
-            foreach (var app in dto.apps)
+            bool tabbed = dto.tabbed && dto.tabs is { Count: > 0 };
+            if (tabbed)
             {
-                // Nested-folder tile: re-link to this machine's launcher by folder name.
-                if (!string.IsNullOrEmpty(app.nested))
+                folder.View = FolderView.List;         // tabs only exist in list folders
+                store.SaveSettings(folder);
+                store.EnableTabs(folder);              // creates two empty tabs on a fresh folder
+                // Shape the tab set to match the export, then fill each tab in order.
+                while (folder.Tabs.Count < dto.tabs!.Count) store.AddTab(folder, "");
+                while (folder.Tabs.Count > dto.tabs!.Count && folder.Tabs.Count > 1)
+                    store.RemoveTab(folder, folder.Tabs.Count - 1);
+                for (int i = 0; i < dto.tabs!.Count; i++)
                 {
-                    store.AddNestedFolderRef(folder, app.nested, app.name);
-                    added++;
-                    continue;
+                    store.RenameTab(folder, i, dto.tabs[i].name);
+                    ImportAppsInto(store, folder.Tabs[i].Folder, dto.tabs[i].apps, byFile, byName, ref added, ref skipped);
                 }
-                var resolved = Resolve(app, byFile, byName);
-                if (resolved != null)
-                {
-                    store.AddResolved(folder, resolved, app.name,
-                        arguments: app.args, iconPath: Expand(app.icon), iconIndex: app.iconIndex);
-                    added++;
-                }
-                else skipped++;
             }
+            else
+            {
+                store.SaveSettings(folder);
+                ImportAppsInto(store, folder, dto.apps, byFile, byName, ref added, ref skipped);
+            }
+
             store.RegenerateAndPublish(folder);
             folders++;
         }
         return new(folders, added, skipped);
+    }
+
+    private static void ImportAppsInto(FolderStore store, FolderModel target, List<AppDto> apps,
+        Dictionary<string, string> byFile, Dictionary<string, string> byName, ref int added, ref int skipped)
+    {
+        foreach (var app in apps)
+        {
+            // Nested-folder tile: re-link to this machine's launcher by folder name.
+            if (!string.IsNullOrEmpty(app.nested))
+            {
+                store.AddNestedFolderRef(target, app.nested, app.name);
+                added++;
+                continue;
+            }
+            var resolved = Resolve(app, byFile, byName);
+            if (resolved != null)
+            {
+                store.AddResolved(target, resolved, app.name,
+                    arguments: app.args, iconPath: Expand(app.icon), iconIndex: app.iconIndex);
+                added++;
+            }
+            else skipped++;
+        }
     }
 
     private static string? Resolve(AppDto app,

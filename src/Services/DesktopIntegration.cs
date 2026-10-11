@@ -62,6 +62,10 @@ public static class DesktopIntegration
     public static void PublishDesktopShortcut(FolderModel folder, string icoPath)
     {
         var lnkPath = DesktopLnkPathFor(folder.Name);
+        // Never overwrite a desktop shortcut that isn't ours (e.g. the user's own "Chrome" shortcut
+        // when a folder named "Chrome" is created/regenerated). This is the safety net behind the
+        // create/rename name checks — it holds no matter which path tries to publish.
+        if (File.Exists(lnkPath) && !IsOurFolderShortcut(lnkPath)) return;
         CreateFolderShortcut(lnkPath, folder.Name, icoPath);
         RefreshIcon(lnkPath);
     }
@@ -103,10 +107,18 @@ public static class DesktopIntegration
     public static void RemoveDesktopShortcut(string folderName)
     {
         var lnkPath = DesktopLnkPathFor(folderName);
-        try { if (File.Exists(lnkPath)) File.Delete(lnkPath); } catch { }
-        // Tell the shell the item was DELETED so Explorer drops the icon immediately. A plain
-        // "update" notification can leave a stale/phantom icon behind on the desktop.
-        NotifyDeleted(lnkPath);
+        try
+        {
+            // Don't delete a desktop shortcut that isn't ours — a folder whose name happens to match
+            // one of the user's own shortcuts must never take it down (on delete / hide / icon regen).
+            if (!File.Exists(lnkPath)) { NotifyDeleted(lnkPath); return; }  // clear any stale/phantom icon
+            if (!IsOurFolderShortcut(lnkPath)) return;
+            File.Delete(lnkPath);
+            // Tell the shell the item was DELETED so Explorer drops the icon immediately. A plain
+            // "update" notification can leave a stale/phantom icon behind on the desktop.
+            NotifyDeleted(lnkPath);
+        }
+        catch { }
     }
 
     /// <summary>Renames the desktop .lnk in place (old name → new name) and tells the shell it was
@@ -140,8 +152,19 @@ public static class DesktopIntegration
     {
         try
         {
-            return ShellLink.ReadAppUserModelId(path)?
-                .StartsWith("Avromiep.GlassFolders.Folder.", StringComparison.OrdinalIgnoreCase) == true;
+            if (ShellLink.ReadAppUserModelId(path)?
+                .StartsWith("Avromiep.GlassFolders.Folder.", StringComparison.OrdinalIgnoreCase) == true)
+                return true;
+            // Older shortcuts (created before we set the AUMID) still point at our launcher with
+            // --open, so recognise those too rather than treating them as foreign.
+            var target = ShellLink.ResolveTarget(path);
+            var exe = target != null ? Path.GetFileName(target) : null;
+            if (exe != null &&
+                (exe.Equals("GFOpen.exe", StringComparison.OrdinalIgnoreCase) ||
+                 exe.Equals("GlassFolders.exe", StringComparison.OrdinalIgnoreCase) ||
+                 exe.Equals("LiquidFolders.exe", StringComparison.OrdinalIgnoreCase)))
+                return (ShellLink.ReadArguments(path) ?? "").Contains("--open", StringComparison.OrdinalIgnoreCase);
+            return false;
         }
         catch { return false; }
     }

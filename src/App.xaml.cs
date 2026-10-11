@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.58";
+    public const string AppVersion = "0.3.59";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -293,6 +293,54 @@ public partial class App : Application
                 // Tab-name with a tab char (#17) must not contain a tab in tabs.txt.
                 store.RenameTab(tc, 0, "Foo\tBar");
                 sb.AppendLine($"[tabname] stored='{tc.Tabs[0].Name}' hasTab={tc.Tabs[0].Name.Contains('\t')}");
+
+                // Export/import round-trip of view, sort, monitor, tabs.
+                var rt = store.CreateFolder("RoundTrip");
+                rt.View = FolderView.List; rt.Sort = FolderSort.NameAsc;
+                rt.PanelMonitor = @"\\.\DISPLAY2"; rt.PanelMonitorRect = "0,0,1920,1080";
+                store.SaveSettings(rt); store.EnableTabs(rt);
+                store.RenameTab(rt, 0, "Clients"); store.RenameTab(rt, 1, "Servers");
+                store.AddShortcut(rt.Tabs[0].Folder, @"C:\Windows\System32\notepad.exe");
+                store.AddShortcut(rt.Tabs[1].Folder, @"C:\Windows\System32\calc.exe");
+                store.AddShortcut(rt.Tabs[1].Folder, @"C:\Windows\System32\charmap.exe");
+                var jsonPath = System.IO.Path.Combine(tempRoot, "export.json");
+                Services.FolderIO.ExportAll(store, jsonPath);
+
+                var root2 = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "gf-rt-" + Guid.NewGuid().ToString("N"));
+                DesktopIntegration.DesktopDirOverride = System.IO.Path.Combine(root2, "desktop");
+                Directory.CreateDirectory(DesktopIntegration.DesktopDirOverride);
+                var store2 = new FolderStore(root2);
+                Services.FolderIO.Import(store2, jsonPath);
+                var ri = store2.FindByName("RoundTrip");
+                sb.AppendLine($"[roundtrip] view={ri?.View} sort={ri?.Sort} monitor={ri?.PanelMonitor} rect={ri?.PanelMonitorRect} tabbed={ri?.Tabbed}");
+                sb.AppendLine($"[roundtrip] tabs={(ri?.Tabs.Count ?? 0)} t0={ri?.Tabs.ElementAtOrDefault(0)?.Name}({ri?.Tabs.ElementAtOrDefault(0)?.Folder.Items.Count}) t1={ri?.Tabs.ElementAtOrDefault(1)?.Name}({ri?.Tabs.ElementAtOrDefault(1)?.Folder.Items.Count})");
+                try { Directory.Delete(root2, true); } catch { }
+                DesktopIntegration.DesktopDirOverride = System.IO.Path.Combine(tempRoot, "desktop"); // restore (root2 is gone)
+
+                // Reserved name before the FIRST dot (#review-2)
+                sb.AppendLine($"[reserved2] NUL.tar.gz->{FolderStore.Sanitize("NUL.tar.gz")} CON.foo->{FolderStore.Sanitize("CON.foo")}");
+
+                // Create must NOT clobber a foreign desktop shortcut with the same name.
+                var brave = DesktopIntegration.DesktopLnkPathFor("Brave");
+                ShellLink.Create(brave, targetPath: @"C:\Windows\System32\notepad.exe", arguments: null);
+                store.CreateFolder("Brave");
+                sb.AppendLine($"[create-clobber] foreignBrave survives={File.Exists(brave) && !DesktopIntegration.IsOurFolderShortcut(brave)}");
+
+                // Remove must NOT delete a foreign desktop shortcut with the same name.
+                var spotify = DesktopIntegration.DesktopLnkPathFor("Spotify");
+                ShellLink.Create(spotify, targetPath: @"C:\Windows\System32\calc.exe", arguments: null);
+                DesktopIntegration.RemoveDesktopShortcut("Spotify");
+                sb.AppendLine($"[remove-clobber] foreignSpotify survives={File.Exists(spotify)}");
+
+                // Clear via the manager's own handler logic on a tabbed folder.
+                var cu = store.CreateFolder("ClearUi");
+                cu.View = FolderView.List; store.SaveSettings(cu); store.EnableTabs(cu);
+                store.AddShortcut(cu.Tabs[0].Folder, @"C:\Windows\System32\notepad.exe");
+                store.AddShortcut(cu.Tabs[1].Folder, @"C:\Windows\System32\calc.exe");
+                var mgr2 = new ManagerWindow(store) { WindowStartupLocation = WindowStartupLocation.Manual, Left = -32000, Top = 40 };
+                mgr2.Show();
+                sb.AppendLine($"[clear-ui] {mgr2.TestClearViaUi("ClearUi")}");
+                mgr2.Close();
 
                 try { Directory.Delete(tempRoot, true); } catch { }
             }

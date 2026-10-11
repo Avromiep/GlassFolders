@@ -427,8 +427,9 @@ public sealed class FolderStore
         // every folder. Anything that collapses to empty/dots becomes a safe placeholder.
         if (name.Length == 0 || name == "." || name == "..") name = "_";
         // Windows reserves device names (CON, NUL, COM1…) — a directory named one of these can't be
-        // created, so prefix it. Matches on the stem (CON and CON.txt both count).
-        var stem = Path.GetFileNameWithoutExtension(name);
+        // created, so prefix it. Windows matches the part before the FIRST dot (NUL, NUL.txt and
+        // NUL.tar.gz are all the NUL device), so check that, not GetFileNameWithoutExtension.
+        var stem = name.Split('.')[0];
         if (ReservedNames.Contains(name) || ReservedNames.Contains(stem)) name = "_" + name;
         return name;
     }
