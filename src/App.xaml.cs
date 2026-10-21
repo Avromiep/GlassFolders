@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.59";
+    public const string AppVersion = "0.3.60";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -219,6 +219,19 @@ public partial class App : Application
             var sb = new System.Text.StringBuilder();
             try
             {
+                // Taskbar-pin gate: a cached pin-rect hit only opens when the taskbar is really under
+                // the cursor (press + release), so a click inside a full-screen app over the pin falls
+                // through. Pure logic, no Win32 — assert the truth table.
+                void Tb(string label, bool actual, bool expected) =>
+                    sb.AppendLine($"[taskbar-rules] {label} => {actual} (expected {expected}) {(actual == expected ? "PASS" : "FAIL")}");
+                Tb("tray/tray,hit,ours",        Services.TaskbarClickRules.ShouldOpenPin("Shell_TrayWnd", "Shell_TrayWnd", true, true), true);
+                Tb("sec/sec,hit,ours",          Services.TaskbarClickRules.ShouldOpenPin("Shell_SecondaryTrayWnd", "Shell_SecondaryTrayWnd", true, true), true);
+                Tb("rdp/rdp,hit,ours",          Services.TaskbarClickRules.ShouldOpenPin("TscShellContainerClass", "TscShellContainerClass", true, true), false);
+                Tb("chrome-down/tray-up",       Services.TaskbarClickRules.ShouldOpenPin("Chrome_WidgetWin_1", "Shell_TrayWnd", true, true), false);
+                Tb("tray/tray,no-hit",          Services.TaskbarClickRules.ShouldOpenPin("Shell_TrayWnd", "Shell_TrayWnd", false, true), false);
+                Tb("tray/tray,not-ours",        Services.TaskbarClickRules.ShouldOpenPin("Shell_TrayWnd", "Shell_TrayWnd", true, false), false);
+                Tb("null/null,hit,ours",        Services.TaskbarClickRules.ShouldOpenPin(null, null, true, true), false);
+
                 var tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "gf-fixtest-" + Guid.NewGuid().ToString("N"));
                 DesktopIntegration.DesktopDirOverride = System.IO.Path.Combine(tempRoot, "desktop");
                 Directory.CreateDirectory(DesktopIntegration.DesktopDirOverride);

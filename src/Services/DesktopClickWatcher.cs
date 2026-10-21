@@ -83,6 +83,7 @@ public sealed class DesktopClickWatcher : IDisposable
         bool wasDown = false;
         POINT downPt = default;
         long downTime = 0;
+        string downRootClass = "";   // top-level window class actually under the cursor at mouse-down
 
         while (!_stop)
         {
@@ -92,6 +93,10 @@ public sealed class DesktopClickWatcher : IDisposable
             {
                 GetCursorPos(out downPt);
                 downTime = Environment.TickCount64;
+                // Cheap Win32 (WindowFromPoint/GetAncestor/GetClassName) — safe on the poll thread,
+                // unlike UIA FromPoint. Tells us whether the taskbar (vs a full-screen app over it)
+                // is really under the cursor.
+                downRootClass = RootClassAt(downPt);
             }
             else if (!down && wasDown)
             {
@@ -101,9 +106,10 @@ public sealed class DesktopClickWatcher : IDisposable
                 // A click, not a drag: barely moved and quick.
                 if (dx * dx + dy * dy <= 36 && dt < 700)
                 {
+                    string upRootClass = RootClassAt(upPt);
                     // A pinned-folder taskbar click opens in-process (fast); otherwise treat it as a
                     // desktop/anywhere click (dismiss an open panel if outside it, then try icons).
-                    if (!TryTaskbarPinClick(upPt))
+                    if (!TryTaskbarPinClick(upPt, downRootClass, upRootClass))
                     {
                         _onClick?.Invoke(upPt.x, upPt.y);
                         EvaluateClick(upPt);
@@ -276,6 +282,14 @@ public sealed class DesktopClickWatcher : IDisposable
         catch (Exception ex) { return "under-cursor: describe failed: " + ex.Message; }
     }
 
+    /// <summary>Class name of the top-level window actually under a screen point (WindowFromPoint →
+    /// GA_ROOT → class), via Win32 only — cheap enough to call on the poll thread.</summary>
+    private static string RootClassAt(POINT pt)
+    {
+        try { return ClassOf(GetAncestor(WindowFromPoint(pt), GA_ROOT)); }
+        catch { return ""; }
+    }
+
     private static string ClassOf(IntPtr h)
     {
         if (h == IntPtr.Zero) return "";
@@ -298,7 +312,7 @@ public sealed class DesktopClickWatcher : IDisposable
     /// in-process and return true. The pin ALSO launches GFOpen, which forwards the same open — the
     /// app dedups it (already open -> reassert), so there's no double-open.
     /// </summary>
-    private bool TryTaskbarPinClick(POINT pt)
+    private bool TryTaskbarPinClick(POINT pt, string? downRootClass, string? upRootClass)
     {
         try
         {
@@ -317,6 +331,15 @@ public sealed class DesktopClickWatcher : IDisposable
                 foreach (var (name, rect) in pins)
                 {
                     if (!rect.Contains(p) || !_isOurFolder(name)) continue;
+                    // The pin's cached rect was hit — but a rect is just coordinates. Only open if the
+                    // window actually under the cursor (at press AND release) is the taskbar. If a
+                    // full-screen app (e.g. RDP/mstsc) is covering the pin, this click is the app's;
+                    // fall through to the normal click path exactly as before.
+                    if (!TaskbarClickRules.ShouldOpenPin(downRootClass, upRootClass, pinRectHit: true, isOurFolder: true))
+                    {
+                        Diag.Log($"taskbar-pin click ignored: root under cursor '{downRootClass}'/'{upRootClass}' is not the taskbar");
+                        return false;
+                    }
                     long now = Environment.TickCount64;
                     lock (_lastOpen)
                     {
@@ -344,6 +367,10 @@ public sealed class DesktopClickWatcher : IDisposable
             if (tr.Right > tr.Left && cur.x >= tr.Left && cur.x < tr.Right && cur.y >= tr.Top && cur.y < tr.Bottom)
             { hover = hwnd; break; }
         if (hover == IntPtr.Zero) return;
+
+        // The cursor is within a taskbar's rect — but don't pay for the UIA pin enumeration if a
+        // window is actually covering the taskbar there (e.g. a full-screen app over the pins).
+        if (!TaskbarClickRules.IsTaskbarRootClass(RootClassAt(cur))) return;
 
         lock (_pinLock)
         {
