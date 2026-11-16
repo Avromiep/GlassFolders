@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.60";
+    public const string AppVersion = "0.3.61";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -355,11 +355,181 @@ public partial class App : Application
                 sb.AppendLine($"[clear-ui] {mgr2.TestClearViaUi("ClearUi")}");
                 mgr2.Close();
 
+                // ---- Installed-apps picker (synthetic data only; no real app names/paths/AUMIDs) ----
+                void Pk(string label, bool ok) => sb.AppendLine($"[picker] {label} => {(ok ? "PASS" : "FAIL")}");
+
+                // Merge/dedupe
+                var mAumid = Services.AppPickerRules.Merge(new[]
+                {
+                    new Services.AppEntry("Store", Services.AppSource.AppsFolder, Aumid: "Ab_111111111111!App"),
+                    new Services.AppEntry("Store", Services.AppSource.StartMenu, Aumid: "Ab_111111111111!App"),
+                });
+                Pk("merge same AUMID -> one Start Menu", mAumid.Count == 1 && mAumid[0].Source == Services.AppSource.StartMenu);
+                var mPath = Services.AppPickerRules.Merge(new[]
+                {
+                    new Services.AppEntry("P", Services.AppSource.StartMenu, TargetPath: @"C:\x\app.exe", Arguments: "--a"),
+                    new Services.AppEntry("P", Services.AppSource.StartMenu, TargetPath: @"C:\x\app.exe", Arguments: "--a"),
+                });
+                Pk("merge same target+args -> one", mPath.Count == 1);
+                var mName = Services.AppPickerRules.Merge(new[]
+                {
+                    new Services.AppEntry("Same", Services.AppSource.StartMenu, TargetPath: @"C:\x\one.exe"),
+                    new Services.AppEntry("Same", Services.AppSource.StartMenu, TargetPath: @"C:\x\two.exe"),
+                });
+                Pk("merge shared name only -> two", mName.Count == 2);
+
+                // Dedupe with arguments (browser profiles)
+                var cp1 = new Services.AppEntry("C1", Services.AppSource.StartMenu, TargetPath: @"C:\c\chrome.exe", Arguments: "--profile-directory=\"Profile 1\"");
+                var cp2 = new Services.AppEntry("C2", Services.AppSource.StartMenu, TargetPath: @"C:\c\chrome.exe", Arguments: "--profile-directory=\"Profile 2\"");
+                Pk("chrome profiles stay two", Services.AppPickerRules.Merge(new[] { cp1, cp2 }).Count == 2);
+                var sameUA = Services.AppPickerRules.Merge(new[]
+                {
+                    new Services.AppEntry("C", Services.AppSource.StartMenu, TargetPath: @"C:\c\chrome.exe", Arguments: "--x"),
+                    new Services.AppEntry("C", Services.AppSource.StartMenu, TargetPath: @"C:\c\chrome.exe", Arguments: "--x"),
+                });
+                Pk("same target+args user+allusers -> one", sameUA.Count == 1);
+                var kp1 = Services.AppPickerRules.IdentityKey(cp1);
+                var kp2 = Services.AppPickerRules.IdentityKey(cp2);
+                Pk("profile1 added leaves profile2 distinct", kp1 != kp2 && kp2 != null);
+
+                // Search filter
+                var searchApps = new[]
+                {
+                    new Services.AppEntry("Notepad", Services.AppSource.StartMenu, TargetPath: "a"),
+                    new Services.AppEntry("Calculator", Services.AppSource.StartMenu, TargetPath: "b"),
+                    new Services.AppEntry("Paint", Services.AppSource.StartMenu, TargetPath: "c"),
+                };
+                Pk("search case-insensitive substring", Services.AppPickerRules.Filter(searchApps, "note").Count == 1);
+                Pk("search empty -> all", Services.AppPickerRules.Filter(searchApps, "").Count == 3);
+                Pk("search no match -> none", Services.AppPickerRules.Filter(searchApps, "zzz").Count == 0);
+
+                // AUMID validator
+                Pk("aumid accept store", Services.AppPickerRules.IsValidPackagedAumid("Microsoft.WindowsStore_8wekyb3d8bbwe!App"));
+                Pk("aumid accept photos", Services.AppPickerRules.IsValidPackagedAumid("Microsoft.Windows.Photos_8wekyb3d8bbwe!App"));
+                bool rejectsAll =
+                    !Services.AppPickerRules.IsValidPackagedAumid("") &&
+                    !Services.AppPickerRules.IsValidPackagedAumid("NoBang_8wekyb3d8bbwe") &&
+                    !Services.AppPickerRules.IsValidPackagedAumid("Has Space_8wekyb3d8bbwe!App") &&
+                    !Services.AppPickerRules.IsValidPackagedAumid("Comma,x_8wekyb3d8bbwe!App") &&
+                    !Services.AppPickerRules.IsValidPackagedAumid("Quote\"x_8wekyb3d8bbwe!App") &&
+                    !Services.AppPickerRules.IsValidPackagedAumid("/Lead_8wekyb3d8bbwe!App") &&
+                    !Services.AppPickerRules.IsValidPackagedAumid("-Lead_8wekyb3d8bbwe!App") &&
+                    !Services.AppPickerRules.IsValidPackagedAumid(@"Back\slash_8wekyb3d8bbwe!App") &&
+                    !Services.AppPickerRules.IsValidPackagedAumid(@"..\x_8wekyb3d8bbwe!App") &&
+                    !Services.AppPickerRules.IsValidPackagedAumid("shell:Ab_8wekyb3d8bbwe!App") &&
+                    !Services.AppPickerRules.IsValidPackagedAumid("Line\nx_8wekyb3d8bbwe!App") &&
+                    !Services.AppPickerRules.IsValidPackagedAumid("Amp&x_8wekyb3d8bbwe!App") &&
+                    !Services.AppPickerRules.IsValidPackagedAumid("Nonascé_8wekyb3d8bbwe!App") &&
+                    !Services.AppPickerRules.IsValidPackagedAumid(new string('a', 40) + "_8wekyb3d8bbwe!" + new string('B', 90));
+                Pk("aumid rejects the bad set", rejectsAll);
+                // Packaged detector (AppsFolder keeps Store/UWP only, drops classic desktop tiles)
+                Pk("packaged: store yes, classic no",
+                    Services.AppPickerRules.IsPackagedAumid("Microsoft.WindowsStore_8wekyb3d8bbwe!App")
+                    && !Services.AppPickerRules.IsPackagedAumid(@"C:\Program Files\7-Zip\7zFM.exe")
+                    && !Services.AppPickerRules.IsPackagedAumid("{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\notepad.exe"));
+
+                // Fallback shortcut: target == %WINDIR%\explorer.exe, args == shell:AppsFolder\<AUMID>
+                var winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+                var fbAumid = "Microsoft.WindowsStore_8wekyb3d8bbwe!App";
+                var fbLnk = System.IO.Path.Combine(tempRoot, "fallback.lnk");
+                Services.ShellLink.Create(fbLnk, Services.AppPickerRules.FallbackTarget(winDir),
+                    arguments: Services.AppPickerRules.FallbackArguments(fbAumid), appUserModelId: fbAumid);
+                var fbTarget = Services.ShellLink.ResolveTarget(fbLnk);
+                var fbArgs = Services.ShellLink.ReadArguments(fbLnk);
+                Pk("fallback target is %WINDIR%\\explorer.exe",
+                    string.Equals(fbTarget, System.IO.Path.Combine(winDir, "explorer.exe"), StringComparison.OrdinalIgnoreCase));
+                Pk("fallback args are shell:AppsFolder\\<AUMID>", fbArgs == "shell:AppsFolder\\" + fbAumid);
+                Pk("fallback is a readable shortcut", !string.IsNullOrEmpty(fbTarget));
+
+                // Invalid AUMID creates no file
+                var noFileFolder = store.CreateFolder("PickNoFile");
+                int beforeNoFile = Directory.GetFiles(noFileFolder.DirectoryPath, "*.lnk").Length;
+                bool threw = false;
+                try { store.AddAppsFolderItem(noFileFolder, new Services.AppEntry("Bad", Services.AppSource.AppsFolder, Aumid: "not a valid aumid")); }
+                catch { threw = true; }
+                int afterNoFile = Directory.GetFiles(noFileFolder.DirectoryPath, "*.lnk").Length;
+                Pk("invalid AUMID: threw and wrote no file", threw && afterNoFile == beforeNoFile);
+
+                // Created links stay inside the folder; name collision -> "Name (2).lnk", first unchanged
+                var collideFolder = store.CreateFolder("PickCollide");
+                store.AddShortcut(collideFolder, @"C:\Windows\System32\notepad.exe");
+                var firstLnk = System.IO.Path.Combine(collideFolder.DirectoryPath, "notepad.lnk");
+                long firstLen = new FileInfo(firstLnk).Length;
+                store.AddShortcut(collideFolder, @"C:\Windows\System32\notepad.exe");
+                bool collideOk = File.Exists(firstLnk)
+                    && File.Exists(System.IO.Path.Combine(collideFolder.DirectoryPath, "notepad (2).lnk"))
+                    && new FileInfo(firstLnk).Length == firstLen
+                    && Directory.GetFiles(collideFolder.DirectoryPath, "*.lnk").Length == 2;
+                Pk("collision -> \"(2)\", first unchanged, both in folder", collideOk);
+
+                // Browse initial directory (pure + live)
+                Pk("browse picks Programs when it exists",
+                    Services.AppPickerRules.BrowseInitialDirectory(@"X:\P", @"X:\CP", @"X:\SM", p => p == @"X:\P") == @"X:\P");
+                Pk("browse falls back, never empty",
+                    Services.AppPickerRules.BrowseInitialDirectory(null, @"X:\CP", @"X:\SM", p => p == @"X:\CP") == @"X:\CP");
+                var liveBrowse = Views.AppPickerWindow.BrowseInitialDirectory();
+                Pk("live browse dir exists and isn't System32",
+                    !string.IsNullOrEmpty(liveBrowse) && Directory.Exists(liveBrowse)
+                    && !liveBrowse!.EndsWith("System32", StringComparison.OrdinalIgnoreCase));
+                Pk("browse dialog DereferenceLinks == false", Views.AppPickerWindow.BuildBrowseDialog().DereferenceLinks == false);
+
+                // Start Menu walk on a synthetic tree: only the real .lnk survives
+                var smRoot = System.IO.Path.Combine(tempRoot, "sm");
+                Directory.CreateDirectory(System.IO.Path.Combine(smRoot, "Programs"));
+                Services.ShellLink.Create(System.IO.Path.Combine(smRoot, "Programs", "RealApp.lnk"), @"C:\Windows\System32\notepad.exe");
+                File.WriteAllText(System.IO.Path.Combine(smRoot, "Programs", "Site.url"), "[InternetShortcut]\nURL=https://x");
+                File.WriteAllText(System.IO.Path.Combine(smRoot, "Programs", "Script.cmd"), "echo hi");
+                File.WriteAllText(System.IO.Path.Combine(smRoot, "Programs", "Click.appref-ms"), "x");
+                File.WriteAllText(System.IO.Path.Combine(smRoot, "Programs", "Broken.lnk"), "");  // unreadable
+                var walked = Services.InstalledAppsEnumerator.GatherStartMenu(smRoot);
+                Pk("start-menu walk keeps only the real .lnk", walked.Count == 1);
+
                 try { Directory.Delete(tempRoot, true); } catch { }
             }
             catch (Exception ex) { sb.AppendLine("ERROR: " + ex); }
             try { File.WriteAllText(System.IO.Path.Combine(dir, "fixtest.txt"), sb.ToString()); } catch { }
             Shutdown();
+            return;
+        }
+
+        if (e.Args.Length >= 1 && e.Args[0].Equals("--shotpicker", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "gf-pick-" + Guid.NewGuid().ToString("N"));
+                DesktopIntegration.DesktopDirOverride = System.IO.Path.Combine(tempRoot, "desktop");
+                Directory.CreateDirectory(DesktopIntegration.DesktopDirOverride);
+                var store = new FolderStore(tempRoot);
+                var folder = store.CreateFolder("Picker Demo");
+                var win = new Views.AppPickerWindow(folder)
+                { WindowStartupLocation = WindowStartupLocation.Manual, Left = -32000, Top = 60 };
+                win.Show();
+                var outPng = e.Args.Length >= 2 ? e.Args[1] : "picker.png";
+                var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(3200) };
+                timer.Tick += (_, _) =>
+                {
+                    timer.Stop();
+                    try
+                    {
+                        var root = (System.Windows.FrameworkElement)win.Content;
+                        root.UpdateLayout();
+                        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                            (int)root.ActualWidth, (int)root.ActualHeight, 96, 96,
+                            System.Windows.Media.PixelFormats.Pbgra32);
+                        rtb.Render(root);
+                        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+                        using var fs = File.Create(outPng);
+                        enc.Save(fs);
+                    }
+                    catch (Exception ex) { File.WriteAllText(outPng + ".log", ex.ToString()); }
+                    win.Close();
+                    try { Directory.Delete(tempRoot, true); } catch { }
+                    Shutdown();
+                };
+                timer.Start();
+            }
+            catch (Exception ex) { LogCrash("shotpicker", ex); Shutdown(); }
             return;
         }
 

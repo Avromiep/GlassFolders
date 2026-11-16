@@ -1,0 +1,134 @@
+<Window x:Class="GlassFolders.Views.AppPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Add apps"
+        WindowStyle="None" AllowsTransparency="False" Background="Transparent"
+        ResizeMode="NoResize" SizeToContent="Manual" Width="460" Height="580"
+        ShowInTaskbar="False" WindowStartupLocation="CenterOwner"
+        FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13"
+        KeyDown="Window_KeyDown">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="0" ResizeBorderThickness="0" GlassFrameThickness="0" CornerRadius="0"/>
+    </WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="Fg" Color="#1B1E24"/>
+        <SolidColorBrush x:Key="FgDim" Color="#5C636E"/>
+        <SolidColorBrush x:Key="CardBg" Color="#F2FFFFFF"/>
+        <SolidColorBrush x:Key="CardBorder" Color="#40FFFFFF"/>
+        <SolidColorBrush x:Key="CtrlBg" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="ListBg" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="Accent" Color="#4F7CF5"/>
+        <SolidColorBrush x:Key="AccentText" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="RowHover" Color="#14000000"/>
+
+        <Style x:Key="Pill" TargetType="Button">
+            <Setter Property="Padding" Value="16,7"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+            <Setter Property="Background" Value="{DynamicResource CtrlBg}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="9"
+                                BorderBrush="{DynamicResource CardBorder}" BorderThickness="1"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.9"/></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.78"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="b" Property="Opacity" Value="0.4"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border x:Name="Card" CornerRadius="16" Padding="20"
+            Background="{DynamicResource CardBg}"
+            BorderBrush="{DynamicResource CardBorder}" BorderThickness="1">
+        <DockPanel>
+            <!-- Header (drag region) -->
+            <TextBlock DockPanel.Dock="Top" Text="Installed apps" FontSize="17" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Fg}" Margin="2,0,0,12"
+                       MouseLeftButtonDown="Card_Drag"/>
+
+            <!-- Search -->
+            <Border DockPanel.Dock="Top" CornerRadius="9" BorderThickness="1" Margin="0,0,0,10"
+                    Background="{DynamicResource CtrlBg}" BorderBrush="{DynamicResource CardBorder}">
+                <Grid>
+                    <TextBox x:Name="SearchBox" BorderThickness="0" Background="Transparent" Padding="11,8"
+                             Foreground="{DynamicResource Fg}" CaretBrush="{DynamicResource Fg}"
+                             VerticalContentAlignment="Center" TextChanged="Search_TextChanged"/>
+                    <TextBlock x:Name="SearchHint" Text="Search installed apps" IsHitTestVisible="False"
+                               Foreground="{DynamicResource FgDim}" Margin="12,0,0,0"
+                               VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+
+            <!-- Bottom bar -->
+            <Grid DockPanel.Dock="Bottom" Margin="0,12,0,0">
+                <TextBlock x:Name="BrowseLink" Text="Browse for a file…" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Accent}" Cursor="Hand" TextDecorations="Underline"
+                           MouseLeftButtonUp="Browse_Click"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancel" Style="{StaticResource Pill}" Click="Cancel_Click"/>
+                    <Button x:Name="AddButton" Content="Add selected" Style="{StaticResource Pill}" Margin="10,0,0,0"
+                            Foreground="{DynamicResource AccentText}" Background="{DynamicResource Accent}"
+                            IsEnabled="False" Click="Add_Click"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- List / status -->
+            <Border CornerRadius="10" BorderThickness="1" Background="{DynamicResource ListBg}"
+                    BorderBrush="{DynamicResource CardBorder}">
+                <Grid>
+                    <ListBox x:Name="AppList" Background="Transparent" BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             HorizontalContentAlignment="Stretch">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="Margin" Value="2,1"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="rb" CornerRadius="7" Background="Transparent" Padding="0">
+                                                <ContentPresenter/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="rb" Property="Background" Value="{DynamicResource RowHover}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" IsEnabled="{Binding CanToggle}"
+                                          VerticalContentAlignment="Center" Padding="6,0,0,0" Margin="8,5">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Image Source="{Binding Icon}" Width="24" Height="24"
+                                               VerticalAlignment="Center" Margin="0,0,10,0"
+                                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource Fg}" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </CheckBox>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <TextBlock x:Name="StatusText" Text="Loading apps…" Visibility="Visible"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Foreground="{DynamicResource FgDim}" FontSize="13.5"/>
+                </Grid>
+            </Border>
+        </DockPanel>
+    </Border>
+</Window>

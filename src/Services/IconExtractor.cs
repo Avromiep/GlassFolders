@@ -63,6 +63,10 @@ public static class IconExtractor
         return primary;
     }
 
+    /// <summary>A single shell extraction with no under-fill probing — fast enough to load hundreds
+    /// of small list icons (e.g. the installed-apps picker) on one thread. Caller owns the bitmap.</summary>
+    public static Bitmap? GetIconFast(string path, int size) => ExtractRaw(path, size);
+
     /// <summary>Raw shell extraction at exactly <paramref name="size"/> (the original GetIcon body).</summary>
     private static Bitmap? ExtractRaw(string path, int size)
     {

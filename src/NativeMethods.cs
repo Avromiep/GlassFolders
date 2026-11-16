@@ -48,6 +48,49 @@ internal static class NativeMethods
         ref Guid riid,
         [MarshalAs(UnmanagedType.Interface)] out object ppv);
 
+    // ---- shell:AppsFolder enumeration (Store/UWP + legacy app tiles) ----
+    // IShellItem / IEnumShellItems let us list the "Applications" virtual folder without raw PIDL
+    // juggling. GetDisplayName(SIGDN_PARENTRELATIVEPARSING) returns a child's AUMID there.
+
+    internal static Guid IID_IShellItem = new("43826D1E-E718-42EE-BC55-A1E261C37BFE");
+    internal static Guid IID_IEnumShellItems = new("70629033-E363-4A28-A567-0DB78006E6D7");
+    internal static Guid BHID_EnumItems = new("94f60519-2850-4924-aa5a-d15e84868039");
+
+    internal const uint SIGDN_NORMALDISPLAY = 0x00000000;
+    internal const uint SIGDN_PARENTRELATIVEPARSING = 0x80018001;
+
+    [ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"),
+     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IShellItem
+    {
+        void BindToHandler(IntPtr pbc, [MarshalAs(UnmanagedType.LPStruct)] Guid bhid,
+            [MarshalAs(UnmanagedType.LPStruct)] Guid riid, [MarshalAs(UnmanagedType.Interface)] out object ppv);
+        void GetParent(out IShellItem ppsi);
+        void GetDisplayName(uint sigdnName, out IntPtr ppszName);
+        void GetAttributes(uint sfgaoMask, out uint psfgao);
+        void Compare(IShellItem psi, uint hint, out int piOrder);
+    }
+
+    [ComImport, Guid("70629033-E363-4A28-A567-0DB78006E6D7"),
+     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IEnumShellItems
+    {
+        [PreserveSig] int Next(uint celt, out IShellItem rgelt, out uint pceltFetched);
+        [PreserveSig] int Skip(uint celt);
+        [PreserveSig] int Reset();
+        void Clone(out IEnumShellItems ppenum);
+    }
+
+    [DllImport("shell32.dll", PreserveSig = false)]
+    internal static extern void SHGetIDListFromObject(
+        [MarshalAs(UnmanagedType.IUnknown)] object punk, out IntPtr ppidl);
+
+    [DllImport("shell32.dll")]
+    internal static extern void ILFree(IntPtr pidl);
+
+    [DllImport("ole32.dll")]
+    internal static extern void CoTaskMemFree(IntPtr pv);
+
     // ---- GDI to read the DIB bits produced by GetImage (preserves alpha) ----
 
     [StructLayout(LayoutKind.Sequential)]

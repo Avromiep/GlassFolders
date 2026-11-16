@@ -754,14 +754,34 @@ public partial class ManagerWindow : Window
     private void Add_Click(object sender, RoutedEventArgs e)
     {
         if (_current == null) return;
-        var dlg = new OpenFileDialog
+        var target = ManagerList;   // current tab when the folder is tabbed
+        var picker = new AppPickerWindow(target) { Owner = this };
+        if (picker.ShowDialog() != true) return;
+
+        // Browse: route the picked files through the existing add path (keeps DereferenceLinks=false
+        // copying so a .lnk keeps its arguments/IDList/AUMID, like drag-and-drop).
+        if (picker.BrowsedFiles is { Length: > 0 } files) { AddFiles(files); return; }
+
+        if (picker.SelectedEntries.Count == 0) return;
+        var failed = new List<string>();
+        foreach (var entry in picker.SelectedEntries)
         {
-            Title = "Add apps",
-            Multiselect = true,
-            Filter = "Programs & shortcuts (*.exe;*.lnk)|*.exe;*.lnk|All files (*.*)|*.*",
-        };
-        if (dlg.ShowDialog(this) != true) return;
-        AddFiles(dlg.FileNames);
+            try
+            {
+                if (entry.Source == AppSource.StartMenu && !string.IsNullOrEmpty(entry.LnkPath))
+                    _store.AddShortcut(target, entry.LnkPath!);   // copies the .lnk byte-for-byte
+                else
+                    _store.AddAppsFolderItem(target, entry);      // Store/UWP via ID list or fallback
+            }
+            catch { failed.Add(entry.Name); }
+        }
+        _store.RegenerateAndPublish(_current);
+        RefreshApps();
+        RefreshFolderMiniIcon();
+        if (failed.Count > 0)
+            System.Windows.MessageBox.Show(this,
+                "Couldn't add: " + string.Join(", ", failed), "Add apps",
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
     }
 
     /// <summary>Adds files to the current folder, reporting any that couldn't be added instead of

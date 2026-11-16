@@ -29,21 +29,42 @@ public static class ShellLink
         // A distinct AppUserModelID makes the taskbar/Start treat this shortcut as its own app,
         // so clicking a pinned copy LAUNCHES it (which opens the folder) instead of trying to
         // focus our windowless tray process — the reason a pinned folder used to do nothing.
-        if (appUserModelId != null)
-        {
-            var store = (IPropertyStore)link;
-            var key = PKEY_AppUserModel_ID;
-            // Build a VT_LPWSTR PROPVARIANT by hand; PropVariantClear frees the string for us.
-            var pv = new PROPVARIANT { vt = VT_LPWSTR, p = Marshal.StringToCoTaskMemUni(appUserModelId) };
-            try { store.SetValue(ref key, ref pv); store.Commit(); }
-            finally { PropVariantClear(ref pv); }
-        }
+        if (appUserModelId != null) SetAumid(link, appUserModelId);
 
         var file = (IPersistFile)link;
         file.Save(lnkPath, true);
 
         Marshal.ReleaseComObject(file);
         Marshal.ReleaseComObject(link);
+    }
+
+    /// <summary>Creates a .lnk straight from a shell item's ID list (PIDL) — used for Store/UWP apps
+    /// that have no file target, so the link carries the app's native icon and launch. Does NOT free
+    /// <paramref name="pidl"/>; the caller owns it. Optionally stamps the AppUserModelID so the app's
+    /// identity can be read back later. Runs on an STA thread (the WPF UI thread qualifies).</summary>
+    public static void CreateFromIdList(string lnkPath, IntPtr pidl,
+        string? description = null, string? appUserModelId = null)
+    {
+        var link = (IShellLinkW)new CShellLink();
+        link.SetIDList(pidl);
+        if (description != null) link.SetDescription(description);
+        if (appUserModelId != null) SetAumid(link, appUserModelId);
+
+        var file = (IPersistFile)link;
+        file.Save(lnkPath, true);
+
+        Marshal.ReleaseComObject(file);
+        Marshal.ReleaseComObject(link);
+    }
+
+    private static void SetAumid(IShellLinkW link, string appUserModelId)
+    {
+        var store = (IPropertyStore)link;
+        var key = PKEY_AppUserModel_ID;
+        // Build a VT_LPWSTR PROPVARIANT by hand; PropVariantClear frees the string for us.
+        var pv = new PROPVARIANT { vt = VT_LPWSTR, p = Marshal.StringToCoTaskMemUni(appUserModelId) };
+        try { store.SetValue(ref key, ref pv); store.Commit(); }
+        finally { PropVariantClear(ref pv); }
     }
 
     /// <summary>Reads back the AppUserModelID set on a .lnk (null if none). Used to verify writes.</summary>

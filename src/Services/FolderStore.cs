@@ -224,6 +224,69 @@ public sealed class FolderStore
         SaveOrder(folder);
     }
 
+    /// <summary>Adds a Store/UWP (shell:AppsFolder) app by writing a .lnk straight into the folder
+    /// directory (never a temp file, never under the Start Menu/%ProgramData%, never overwriting an
+    /// existing file). Prefers the native ID-list link; falls back to an explorer.exe shortcut whose
+    /// only argument is "shell:AppsFolder\&lt;AUMID&gt;" and only for a validated packaged AUMID. Must
+    /// run on an STA thread (the WPF UI thread qualifies). Throws if the app can't be added.</summary>
+    public void AddAppsFolderItem(FolderModel folder, AppEntry entry)
+    {
+        if (string.IsNullOrEmpty(entry.Aumid))
+            throw new InvalidOperationException("This app can't be added.");
+        string dest = UniqueLnkPath(folder.DirectoryPath, entry.Name);
+        if (!TryWriteIdListLink(dest, entry.Aumid!, entry.Name) &&
+            !TryWriteFallbackLink(dest, entry.Aumid!, entry.Name))
+            throw new InvalidOperationException("This app can't be added.");
+        folder.Items.Add(new ShortcutItem { LnkPath = dest });
+        SaveOrder(folder);
+    }
+
+    private static bool TryWriteIdListLink(string dest, string aumid, string name)
+    {
+        object? itemObj = null;
+        IntPtr pidl = IntPtr.Zero;
+        try
+        {
+            var iid = NativeMethods.IID_IShellItem;
+            NativeMethods.SHCreateItemFromParsingName("shell:AppsFolder\\" + aumid, IntPtr.Zero, ref iid, out itemObj);
+            var item = (NativeMethods.IShellItem)itemObj;
+
+            // Verify the re-parsed item really is the enumerated one before trusting its ID list.
+            IntPtr np = IntPtr.Zero;
+            string back;
+            item.GetDisplayName(NativeMethods.SIGDN_PARENTRELATIVEPARSING, out np);
+            try { back = (np != IntPtr.Zero ? System.Runtime.InteropServices.Marshal.PtrToStringUni(np) : null) ?? ""; }
+            finally { if (np != IntPtr.Zero) NativeMethods.CoTaskMemFree(np); }
+            if (!string.Equals(back, aumid, StringComparison.OrdinalIgnoreCase)) return false;
+
+            NativeMethods.SHGetIDListFromObject(item, out pidl);
+            if (pidl == IntPtr.Zero) return false;
+            ShellLink.CreateFromIdList(dest, pidl, description: name, appUserModelId: aumid);
+            return true;
+        }
+        catch { try { if (File.Exists(dest)) File.Delete(dest); } catch { } return false; }
+        finally
+        {
+            if (pidl != IntPtr.Zero) NativeMethods.ILFree(pidl);
+            if (itemObj != null) System.Runtime.InteropServices.Marshal.ReleaseComObject(itemObj);
+        }
+    }
+
+    private static bool TryWriteFallbackLink(string dest, string aumid, string name)
+    {
+        if (!AppPickerRules.IsValidPackagedAumid(aumid)) return false;
+        try
+        {
+            var explorer = AppPickerRules.FallbackTarget(
+                Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+            // Absolute %WINDIR%\explorer.exe, a single validated argument, no working directory, no cmd.
+            ShellLink.Create(dest, explorer, arguments: AppPickerRules.FallbackArguments(aumid),
+                description: name, appUserModelId: aumid);
+            return true;
+        }
+        catch { try { if (File.Exists(dest)) File.Delete(dest); } catch { } return false; }
+    }
+
     public void RemoveShortcut(FolderModel folder, ShortcutItem item)
     {
         try { File.Delete(item.LnkPath); } catch { }
