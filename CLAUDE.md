@@ -19,8 +19,17 @@ apply to all new and changed code. Keep every rule short and plain.
 
 ## Privacy, network and security
 - No telemetry, no analytics, and no crash reporting.
-- No new network use beyond the existing Check-for-updates path (GitHub
-  Releases). Stay offline otherwise.
+- No new network use beyond two paths, and stay offline otherwise:
+  1. The existing Check-for-updates path (GitHub Releases).
+  2. **Find app icon**, and only like this: a request runs **only** when the user
+     clicks Find app icon for an item — never in the background, never while
+     listing or enumerating. Send only a derived domain/query for that one app
+     (no account, no identifier, no list of installed apps, no user name/email).
+     Use a generic User-Agent. No API key or secret (none may ship in this public
+     app). Only public icon endpoints (the site's own icon, or a keyless favicon
+     service). Fetch images only; never execute or open what comes back, and
+     normalise it through the same custom-icon path. Do not log the name, domain,
+     query, or URL. One short timeout; fail quietly and offline-safe.
 - Nothing elevated: never request administrator rights, never use the `runas`
   verb, never start anything elevated.
 - Secrets live only in GitHub secrets — never in the repository, the app, chat,

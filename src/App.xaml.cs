@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.62";
+    public const string AppVersion = "0.3.63";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -545,10 +545,88 @@ public partial class App : Application
                 Ci("reset clears icon location and removes stored icons",
                     afterReset == null && Directory.GetFiles(customDir, "*.ico").Length == 0);
 
+                // ---- Find app icon (domain guessing + HTML parsing are pure; bytes->icon is offline) ----
+                void Fi(string label, bool ok) => sb.AppendLine($"[findicon] {label} => {(ok ? "PASS" : "FAIL")}");
+
+                Fi("slug strips non-alnum & lowercases",
+                    Services.IconFinder.Slug("Grok Bot") == "grokbot" && Services.IconFinder.Slug("ChatGPT") == "chatgpt");
+                var domC = Services.IconFinder.CandidateDomains("Claude");
+                Fi("claude -> claude.ai first, distinct guesses",
+                    domC.Count >= 1 && domC[0] == "claude.ai" && domC.Contains("claude.com")
+                    && domC.Distinct().Count() == domC.Count);
+                Fi("chatgpt -> chatgpt.com first",
+                    Services.IconFinder.CandidateDomains("ChatGPT")[0] == "chatgpt.com");
+                Fi("unknown name -> <slug>.com/.ai/.app",
+                    Services.IconFinder.CandidateDomains("Zzz").SequenceEqual(new[] { "zzz.com", "zzz.ai", "zzz.app" }));
+                Fi("favicon url carries domain + sz=256",
+                    Services.IconFinder.FaviconServiceUrl("claude.ai").Contains("claude.ai")
+                    && Services.IconFinder.FaviconServiceUrl("claude.ai").Contains("sz=256"));
+                Fi("well-known apple-touch paths offered for a domain",
+                    Services.IconFinder.WellKnownAppleTouchUrls("claude.ai")
+                        .SequenceEqual(new[] { "https://claude.ai/apple-touch-icon.png",
+                                               "https://claude.ai/apple-touch-icon-precomposed.png" }));
+                Fi("sizes parse: largest wins, blank -> 0",
+                    Services.IconFinder.ParseSizes("57x57 180x180") == 180
+                    && Services.IconFinder.ParseSizes("") == 0 && Services.IconFinder.ParseSizes("any") == 0);
+                Fi("resolve: relative, protocol-relative, reject non-http",
+                    Services.IconFinder.ResolveUrl("https://a.com/", "/i.png") == "https://a.com/i.png"
+                    && Services.IconFinder.ResolveUrl("https://a.com/", "//b.com/i.png") == "https://b.com/i.png"
+                    && Services.IconFinder.ResolveUrl("https://a.com/", "javascript:void(0)") == null);
+
+                var html = "<head>"
+                    + "<link rel=\"icon\" href=\"/fav.ico\">"
+                    + "<link rel=\"apple-touch-icon\" sizes=\"120x120\" href=\"/t120.png\">"
+                    + "<link rel=\"apple-touch-icon-precomposed\" sizes=\"180x180\" href=\"https://cdn.x/t180.png\">"
+                    + "<link rel=\"apple-touch-icon\" href=\"//cdn.x/noext\">"
+                    + "</head>";
+                var icons = Services.IconFinder.ParseAppleTouchIcons(html, "https://app.test/");
+                Fi("apple-touch parse: largest first, absolute, excludes rel=icon",
+                    icons.Count == 3 && icons[0] == "https://cdn.x/t180.png" && icons[1] == "https://app.test/t120.png"
+                    && icons.All(u => u.StartsWith("http")) && !icons.Any(u => u.Contains("fav.ico")));
+
+                // Bytes -> custom icon (offline: reuse the 8x8 PNG written above)
+                var imgBytes = File.ReadAllBytes(pngPath);
+                var fromBytes = Services.CustomIcon.SetFromImageBytes(store.IconsPath, ciLnk, imgBytes);
+                var (bytePath, _) = Services.ShellLink.ReadIconLocation(ciLnk);
+                Fi("SetFromImageBytes writes an .ico and points the .lnk at it",
+                    fromBytes != null && File.Exists(fromBytes!) && bytePath != null
+                    && string.Equals(bytePath, fromBytes, StringComparison.OrdinalIgnoreCase));
+                Fi("SetFromImageBytes refuses empty bytes",
+                    Services.CustomIcon.SetFromImageBytes(store.IconsPath, ciLnk, Array.Empty<byte>()) == null);
+
                 try { Directory.Delete(tempRoot, true); } catch { }
             }
             catch (Exception ex) { sb.AppendLine("ERROR: " + ex); }
             try { File.WriteAllText(System.IO.Path.Combine(dir, "fixtest.txt"), sb.ToString()); } catch { }
+            Shutdown();
+            return;
+        }
+
+        if (e.Args.Length >= 1 && e.Args[0].Equals("--findicon", StringComparison.OrdinalIgnoreCase))
+        {
+            // Dev hook: exercise the real (networked) IconFinder pipeline and dump what it finds.
+            try
+            {
+                string name = e.Args.Length >= 2 ? e.Args[1] : "ChatGPT";
+                string outDir = e.Args.Length >= 3 ? e.Args[2] : ".";
+                Directory.CreateDirectory(outDir);
+                // Off the UI thread so blocking here can't deadlock the dispatcher.
+                var cands = Task.Run(() =>
+                    Services.IconFinder.FindAsync(name, System.Threading.CancellationToken.None))
+                    .GetAwaiter().GetResult();
+                var sb2 = new System.Text.StringBuilder();
+                sb2.AppendLine($"query='{name}' candidates={cands.Count}");
+                for (int i = 0; i < cands.Count; i++)
+                {
+                    var c = cands[i];
+                    var p = System.IO.Path.Combine(outDir,
+                        $"cand{i}_{c.SourceLabel.Replace(' ', '-')}_{c.Width}x{c.Height}.png");
+                    try { File.WriteAllBytes(p, c.Bytes); } catch { }
+                    sb2.AppendLine($"[{i}] {c.SourceLabel} {c.Width}x{c.Height} -> {System.IO.Path.GetFileName(p)}");
+                }
+                File.WriteAllText(System.IO.Path.Combine(outDir, "findicon.txt"), sb2.ToString());
+            }
+            catch (Exception ex) { LogCrash("findicon", ex); }
             Shutdown();
             return;
         }

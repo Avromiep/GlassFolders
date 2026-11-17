@@ -62,21 +62,41 @@ public static class CustomIcon
                 Path.GetExtension(sourceImagePath).Equals(".ico", StringComparison.OrdinalIgnoreCase)
                     ? File.ReadAllBytes(sourceImagePath)   // keep a real .ico's own frames as-is
                     : BuildIco(sourceImagePath);
-            if (ico.Length == 0) return null;
-
-            string dir = CustomDir(iconsRoot);
-            Directory.CreateDirectory(dir);
-            string key = Key(lnkPath);
-            // Fresh file name each time so the shell never serves a stale cached thumbnail.
-            string dest = Path.Combine(dir, $"{key}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.ico");
-
-            File.WriteAllBytes(dest, ico);
-            ShellLink.SetIconLocation(lnkPath, dest, 0);     // preserves target / ID list / identity
-            DeleteFor(dir, key, keep: dest);                 // drop this item's previous custom icon(s)
-            NotifyShell(lnkPath);
-            return dest;
+            return Apply(iconsRoot, lnkPath, ico);
         }
         catch { return null; }
+    }
+
+    /// <summary>Applies an in-memory image (e.g. one just downloaded by Find app icon) as the shortcut's
+    /// icon. The bytes are decoded, normalised to a 256px PNG-in-ICO and stored under our data folder —
+    /// never executed or run. Returns the stored .ico path, or null on failure. Never throws.</summary>
+    public static string? SetFromImageBytes(string iconsRoot, string lnkPath, byte[] imageBytes)
+    {
+        try
+        {
+            if (!File.Exists(lnkPath) || imageBytes == null || imageBytes.Length == 0) return null;
+            using var ms = new MemoryStream(imageBytes, writable: false);
+            using var src = (Bitmap)Image.FromStream(ms);   // decode only; no code execution
+            return Apply(iconsRoot, lnkPath, BuildIco(src));
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Stores <paramref name="ico"/> under Icons/_custom and points the shortcut at it.</summary>
+    private static string? Apply(string iconsRoot, string lnkPath, byte[] ico)
+    {
+        if (ico == null || ico.Length == 0) return null;
+        string dir = CustomDir(iconsRoot);
+        Directory.CreateDirectory(dir);
+        string key = Key(lnkPath);
+        // Fresh file name each time so the shell never serves a stale cached thumbnail.
+        string dest = Path.Combine(dir, $"{key}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.ico");
+
+        File.WriteAllBytes(dest, ico);
+        ShellLink.SetIconLocation(lnkPath, dest, 0);         // preserves target / ID list / identity
+        DeleteFor(dir, key, keep: dest);                     // drop this item's previous custom icon(s)
+        NotifyShell(lnkPath);
+        return dest;
     }
 
     /// <summary>Clears any custom icon so the shortcut falls back to its app's own icon.</summary>
@@ -107,6 +127,13 @@ public static class CustomIcon
     private static byte[] BuildIco(string sourceImagePath)
     {
         using var src = (Bitmap)Image.FromFile(sourceImagePath);
+        return BuildIco(src);
+    }
+
+    /// <summary>Renders any bitmap into a 256px square (aspect preserved, centered, small margin) and
+    /// wraps it as a PNG-in-ICO.</summary>
+    private static byte[] BuildIco(Bitmap src)
+    {
         using var canvas = new Bitmap(IconPx, IconPx, PixelFormat.Format32bppArgb);
         using (var g = Graphics.FromImage(canvas))
         {

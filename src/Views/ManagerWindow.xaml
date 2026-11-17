@@ -473,6 +473,7 @@
                                             <ContextMenu>
                                                 <MenuItem Header="Open" Click="AppOpen_Click"/>
                                                 <Separator/>
+                                                <MenuItem Header="Find app icon…" Click="AppFindIcon_Click"/>
                                                 <MenuItem Header="Change icon…" Click="AppChangeIcon_Click"/>
                                                 <MenuItem Header="Reset icon to default" Click="AppResetIcon_Click"/>
                                                 <Separator/>

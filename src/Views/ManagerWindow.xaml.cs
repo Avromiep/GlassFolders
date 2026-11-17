@@ -470,6 +470,23 @@ public partial class ManagerWindow : Window
         AfterIconChange();
     }
 
+    private void AppFindIcon_Click(object sender, RoutedEventArgs e)
+    {
+        if (_current == null || AppList.SelectedItem is not AppVM vm) return;
+        var finder = new IconFinderWindow(vm.Item.DisplayName, _dark) { Owner = this };
+        if (finder.ShowDialog() != true || finder.ChosenBytes == null) return;
+
+        var saved = CustomIcon.SetFromImageBytes(_store.IconsPath, vm.Item.LnkPath, finder.ChosenBytes);
+        if (saved == null)
+        {
+            MessageBox.Show(this,
+                "That icon couldn't be applied. You can use Change icon… to pick an image yourself.",
+                "Find app icon", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        AfterIconChange();
+    }
+
     private void AppResetIcon_Click(object sender, RoutedEventArgs e)
     {
         if (_current == null || AppList.SelectedItem is not AppVM vm) return;
