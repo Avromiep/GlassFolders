@@ -10,7 +10,7 @@ namespace GlassFolders;
 public partial class App : Application
 {
     public const string AppName = "Glass Folders";
-    public const string AppVersion = "0.3.61";
+    public const string AppVersion = "0.3.62";
 
     private SingleInstance _single = null!;
     private FolderStore _store = null!;
@@ -483,6 +483,67 @@ public partial class App : Application
                 File.WriteAllText(System.IO.Path.Combine(smRoot, "Programs", "Broken.lnk"), "");  // unreadable
                 var walked = Services.InstalledAppsEnumerator.GatherStartMenu(smRoot);
                 Pk("start-menu walk keeps only the real .lnk", walked.Count == 1);
+
+                // ---- Change icon (custom icon) ----
+                void Ci(string label, bool ok) => sb.AppendLine($"[customicon] {label} => {(ok ? "PASS" : "FAIL")}");
+
+                Ci("accepts png/ico/jpg/jpeg/bmp (any case)",
+                    Services.CustomIcon.IsSupportedSource("a.png") && Services.CustomIcon.IsSupportedSource("A.ICO")
+                    && Services.CustomIcon.IsSupportedSource("b.JpG") && Services.CustomIcon.IsSupportedSource("c.jpeg")
+                    && Services.CustomIcon.IsSupportedSource("d.bmp"));
+                Ci("rejects exe/txt/none/empty",
+                    !Services.CustomIcon.IsSupportedSource("a.exe") && !Services.CustomIcon.IsSupportedSource("a.txt")
+                    && !Services.CustomIcon.IsSupportedSource("noext") && !Services.CustomIcon.IsSupportedSource(""));
+                Ci("key stable & case-insensitive",
+                    Services.CustomIcon.Key(@"C:\x\A.lnk") == Services.CustomIcon.Key(@"c:\x\a.lnk"));
+                Ci("key differs by path",
+                    Services.CustomIcon.Key(@"C:\x\A.lnk") != Services.CustomIcon.Key(@"C:\x\B.lnk"));
+
+                // IcoWriter container layout (pure, no real image needed)
+                var fakePng = new byte[] { 0x89, 0x50, 0x4E, 0x47, 1, 2, 3, 4 };
+                var ico = Services.IcoWriter.WrapPng(fakePng, 256, 256);
+                bool icoHdr = ico.Length == Services.IcoWriter.ImageOffset + fakePng.Length
+                    && ico[0] == 0 && ico[1] == 0 && ico[2] == 1 && ico[3] == 0 && ico[4] == 1 && ico[5] == 0
+                    && ico[6] == 0 && ico[7] == 0 && ico[8] == 0 && ico[9] == 0
+                    && BitConverter.ToInt16(ico, 10) == 1 && BitConverter.ToInt16(ico, 12) == 32
+                    && BitConverter.ToInt32(ico, 14) == fakePng.Length
+                    && BitConverter.ToInt32(ico, 18) == Services.IcoWriter.ImageOffset;
+                Ci("ico header + png payload laid out correctly", icoHdr);
+                var ico100 = Services.IcoWriter.WrapPng(fakePng, 100, 100);
+                bool threwLo = false; try { Services.IcoWriter.WrapPng(fakePng, 0, 10); } catch { threwLo = true; }
+                bool threwEmpty = false; try { Services.IcoWriter.WrapPng(Array.Empty<byte>(), 16, 16); } catch { threwEmpty = true; }
+                Ci("ico encodes non-256 size & rejects bad args", ico100[6] == 100 && ico100[7] == 100 && threwLo && threwEmpty);
+
+                // Integration: set a custom icon on a real (synthetic) shortcut, then reset.
+                var ciFolder = store.CreateFolder("CiFolder");
+                store.AddShortcut(ciFolder, @"C:\Windows\System32\notepad.exe");
+                var ciLnk = Directory.GetFiles(ciFolder.DirectoryPath, "*.lnk")[0];
+                var pngPath = System.IO.Path.Combine(tempRoot, "src.png");
+                using (var b = new System.Drawing.Bitmap(8, 8))
+                { b.SetPixel(0, 0, System.Drawing.Color.Red); b.Save(pngPath, System.Drawing.Imaging.ImageFormat.Png); }
+                var customDir = Services.CustomIcon.CustomDir(store.IconsPath);
+
+                var savedIco = Services.CustomIcon.Set(store.IconsPath, ciLnk, pngPath);
+                var (setPath, _) = Services.ShellLink.ReadIconLocation(ciLnk);
+                Ci("set writes one .ico under Icons/_custom and points the .lnk at it",
+                    savedIco != null && File.Exists(savedIco)
+                    && setPath != null && string.Equals(setPath, savedIco, StringComparison.OrdinalIgnoreCase)
+                    && savedIco!.StartsWith(customDir, StringComparison.OrdinalIgnoreCase)
+                    && Directory.GetFiles(customDir, "*.ico").Length == 1);
+
+                var savedIco2 = Services.CustomIcon.Set(store.IconsPath, ciLnk, pngPath);
+                Ci("re-set replaces, leaves exactly one custom icon",
+                    savedIco2 != null && Directory.GetFiles(customDir, "*.ico").Length == 1);
+
+                var txtSrc = System.IO.Path.Combine(tempRoot, "x.txt"); File.WriteAllText(txtSrc, "no");
+                bool refused = Services.CustomIcon.Set(store.IconsPath, ciLnk, txtSrc) == null;
+                var (stillSet, _) = Services.ShellLink.ReadIconLocation(ciLnk);
+                Ci("unsupported source refused, icon unchanged", refused && stillSet != null);
+
+                Services.CustomIcon.Reset(store.IconsPath, ciLnk);
+                var (afterReset, _) = Services.ShellLink.ReadIconLocation(ciLnk);
+                Ci("reset clears icon location and removes stored icons",
+                    afterReset == null && Directory.GetFiles(customDir, "*.ico").Length == 0);
 
                 try { Directory.Delete(tempRoot, true); } catch { }
             }

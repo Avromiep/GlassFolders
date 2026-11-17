@@ -472,6 +472,10 @@
                                         <ListBox.ContextMenu>
                                             <ContextMenu>
                                                 <MenuItem Header="Open" Click="AppOpen_Click"/>
+                                                <Separator/>
+                                                <MenuItem Header="Change icon…" Click="AppChangeIcon_Click"/>
+                                                <MenuItem Header="Reset icon to default" Click="AppResetIcon_Click"/>
+                                                <Separator/>
                                                 <MenuItem Header="Remove from folder" Click="AppRemove_Click"/>
                                             </ContextMenu>
                                         </ListBox.ContextMenu>

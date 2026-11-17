@@ -39,6 +39,10 @@ apply to all new and changed code. Keep every rule short and plain.
   other identity) field to the model.
 - Start Menu, `%ProgramData%`, and other system folders are **read-only**. Write
   only inside Glass Folders' own data folders. Never overwrite a user's files.
+- A user-chosen custom icon is normalised to an `.ico` and written only under
+  `%LOCALAPPDATA%\GlassFolders\Icons\_custom`, then set as the shortcut's icon
+  location. The source image is read, never moved; the `.lnk` target/identity is
+  left untouched. Validate the chosen file (extension + size) before using it.
 
 ## Launching
 - Launch stays `Process.Start` on the `.lnk` with `UseShellExecute = true`, with

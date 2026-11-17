@@ -447,6 +447,46 @@ public partial class ManagerWindow : Window
     private void AppOpen_Click(object sender, RoutedEventArgs e) => LaunchSelected();
     private void AppRemove_Click(object sender, RoutedEventArgs e) => RemoveSelected();
 
+    private void AppChangeIcon_Click(object sender, RoutedEventArgs e)
+    {
+        if (_current == null || AppList.SelectedItem is not AppVM vm) return;
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Choose an icon image",
+            Filter = CustomIcon.DialogFilter,
+            CheckFileExists = true,
+            DereferenceLinks = true,
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        var saved = CustomIcon.Set(_store.IconsPath, vm.Item.LnkPath, dlg.FileName);
+        if (saved == null)
+        {
+            MessageBox.Show(this,
+                "That image couldn't be used as an icon. Try a PNG, ICO, JPG or BMP file.",
+                "Change icon", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        AfterIconChange();
+    }
+
+    private void AppResetIcon_Click(object sender, RoutedEventArgs e)
+    {
+        if (_current == null || AppList.SelectedItem is not AppVM vm) return;
+        CustomIcon.Reset(_store.IconsPath, vm.Item.LnkPath);
+        AfterIconChange();
+    }
+
+    /// <summary>After a custom icon is set or reset: the shortcut's mtime changed, so the icon cache
+    /// (keyed by path+mtime) re-reads it; also refresh the folder's composite desktop icon.</summary>
+    private void AfterIconChange()
+    {
+        if (_current == null) return;
+        _store.RegenerateAndPublish(_current);
+        RefreshApps();
+        RefreshFolderMiniIcon();
+    }
+
     private void LaunchSelected()
     {
         if (AppList.SelectedItem is AppVM vm)
@@ -457,6 +497,7 @@ public partial class ManagerWindow : Window
     private void RemoveSelected()
     {
         if (_current == null || AppList.SelectedItem is not AppVM vm) return;
+        CustomIcon.Forget(_store.IconsPath, vm.Item.LnkPath);   // drop its stored custom icon, if any
         _store.RemoveShortcut(ManagerList, vm.Item);
         _store.RegenerateAndPublish(_current);
         RefreshApps();

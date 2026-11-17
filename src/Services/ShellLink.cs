@@ -57,6 +57,24 @@ public static class ShellLink
         Marshal.ReleaseComObject(link);
     }
 
+    /// <summary>Loads an existing .lnk, sets its custom icon location (path + index) and saves it back
+    /// in place. Everything else — the file target OR the Store/UWP ID list, arguments, AppUserModelID —
+    /// is preserved, so this works for classic and ID-list shortcuts alike. Pass an empty
+    /// <paramref name="iconPath"/> to clear the custom icon (see <see cref="ClearIconLocation"/>).</summary>
+    public static void SetIconLocation(string lnkPath, string iconPath, int iconIndex = 0)
+    {
+        var link = (IShellLinkW)new CShellLink();
+        var file = (IPersistFile)link;
+        file.Load(lnkPath, 0);
+        link.SetIconLocation(iconPath, iconIndex);
+        file.Save(lnkPath, true);
+        Marshal.ReleaseComObject(file);
+        Marshal.ReleaseComObject(link);
+    }
+
+    /// <summary>Removes any custom icon so the shortcut falls back to its target/app's own icon.</summary>
+    public static void ClearIconLocation(string lnkPath) => SetIconLocation(lnkPath, "", 0);
+
     private static void SetAumid(IShellLinkW link, string appUserModelId)
     {
         var store = (IPropertyStore)link;
